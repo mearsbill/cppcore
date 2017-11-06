@@ -209,7 +209,6 @@ class abcHashList_c  : public abcSlicedList_c	// a list is also a listNode
   	int resizeHashBucketThreshold; 		// the size of a slice needed to invoke hash resizing;
   	int resizeHashGrowthPercentage; 	// the amount to grow by when above threshold is met.
 
-	abcResult_e resizeHashTable();			// rebuild the list using a new hash array.  This is bruteforce.  we can do it elecgantly later.
 
   public:
 
@@ -224,6 +223,7 @@ class abcHashList_c  : public abcSlicedList_c	// a list is also a listNode
     virtual abcResult_e print(abcPrintStyle_e printStyle=PRINT_STYLE_LIST_WITH_NODE_DETAILS);
     abcResult_e         printBuff(char *pBuff, int pbuffSize, abcPrintStyle_e  printStyle); //nonVirtual prinfbuff for this level of the object hiearchy
 
+	abcResult_e resizeHashTable();			// rebuild the list using a new hash array.  This is bruteforce.  we can do it elecgantly later.
 
 	//full abcHashList_c list operations
 	// virtual abcResult_e empty();									// SlicedList empty used
