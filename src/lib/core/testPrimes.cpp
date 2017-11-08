@@ -105,7 +105,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	abcGlobalCore->initPrimes(3600);
+	//abcGlobalCore->initPrimes(3600);
 	DEBUG_A(" -----\n");
 	abcGlobalCore->updatePrimes(8000);
 	int primeTry=200;

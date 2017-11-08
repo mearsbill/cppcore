@@ -17,6 +17,7 @@ extern "C"
 #include <sys/time.h>
 #include <signal.h>
 #include <math.h>
+#include <pthread.h>
 }
 
 // go here for our enum values.

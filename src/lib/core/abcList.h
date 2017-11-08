@@ -15,6 +15,19 @@
 
 class abcList_c : public abcListNode_c	// a list is also a listNode
 {
+  private:
+
+  	// storage for locking
+  	uint8_t				lockingEnabled;
+	uint8_t				writerIsWaiting;
+	uint8_t				readerIsWaiting;
+	int8_t				registeredReaders; 	// count of active readers.  multiple simultaneous readers allowed	(128 limit !)
+  	pthread_mutex_t     mutex;
+	pthread_cond_t      readerCondVar;		// reader signals this var.  Writer waits on it
+	pthread_cond_t      writerCondVar;		// writer signals this var.  Reader waits on it
+	
+
+
   protected:
 	char			*name;
 	abcListNode_c *headNode;
@@ -24,6 +37,12 @@ class abcList_c : public abcListNode_c	// a list is also a listNode
 	int64_t		nodeCount;
 	abcReason_e	errorReason;
 	uint8_t		isSorted;		// safe flag to stop mixing usage
+
+	abcResult_e		lock();		// lock the mutex
+	abcResult_e		unlock();	// unlock the mutex
+
+
+
 
 
   public:
@@ -40,8 +59,8 @@ class abcList_c : public abcListNode_c	// a list is also a listNode
 	// 		to avoid changing the "curr" "head" or "tail" pointers behind the back of a different bit of code.  The only exception
 	//		to this principal is to use NoWait version which will return with status if currently locked.
 	//
-	abcResult_e	enableLocking();
-	abcResult_e	disableLocking();
+	abcResult_e	enableLocking();	// turn on locking ability.  Read/Write registrastion require locking.
+	abcResult_e	disableLocking();	// turn off locking ability
 	abcResult_e	readRegister();
 	abcResult_e	readRegisterNoWait();
 	abcResult_e	readRelease();
@@ -206,8 +225,14 @@ class abcSlicedList_c  : public abcList_c
 class abcHashList_c  : public abcSlicedList_c	// a list is also a listNode
 {
   protected:
-  	int resizeHashBucketThreshold; 		// the size of a slice needed to invoke hash resizing;
-  	int resizeHashGrowthPercentage; 	// the amount to grow by when above threshold is met.
+  	friend class abcMemMon_c;
+
+	int			specialInit;					// flag initProtected
+	int			startingSliceCount;
+	int			startingResizeThreshold;
+  	int			resizeHashBucketThreshold; 		// the size of a slice needed to invoke hash resizing;
+  	int			resizeHashGrowthPercentage; 	// the amount to grow by when above threshold is met.
+	abcResult_e	initProtected(int startingSliceCount=1000,int missThresholdForResiz=5, int growthPercent=220);
 
 
   public:
@@ -216,7 +241,6 @@ class abcHashList_c  : public abcSlicedList_c	// a list is also a listNode
 	abcHashList_c(const char *setName = NULL);
 	~abcHashList_c();
 	virtual abcResult_e init(int sliceCount);				
-	virtual abcResult_e init(int startingSliceCount,int missThresholdForResize, int growthPercent); // increase by 8 the hash size if you miss 10 times looking for a hash match
 
 	// print stuff
     virtual char        *getObjType();  // the class name

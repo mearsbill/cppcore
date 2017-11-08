@@ -497,10 +497,7 @@ abcResult_e testSlicedList()
 
 abcResult_e testPrimes()
 {
-	// primes self init and self adjust by initing abcGlobalCore
-	// prime #500 => 3571
-	// prime #1000 => 7919
-	// prime #10000 => 104730
+	//abcGlobalCore->initPrimes(3600);
 	abcGlobalCore->printPrimes(1,20);
 	abcGlobalCore->updatePrimes(8000);
 
@@ -959,7 +956,8 @@ void usage(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-	abcResult_e initStatus = abcInit(1);
+	abcGlobalCore = new abcCore_c();
+	abcResult_e initStatus = abcGlobalCore->init(1);
 	if (initStatus != ABC_PASS)
 	{
 		FATAL_ERROR_G(ABC_REASON_GLOBAL_INIT_FAILED);
@@ -999,15 +997,15 @@ int main(int argc, char **argv)
 */
 	abcResult_e result;
 
-	testNode_c *tn = ABC_NEW_CLASS(testNode_c,);
-	abcGlobalMem->printMemoryStats();
-	ABC_DEL_CLASS(tn);
-	abcGlobalMem->printMemoryStats();
-
-
-	abcResult_e shutdownResult = abcShutdown(1);
-	int retVal = (shutdownResult == ABC_PASS ? 0:1);
-	return retVal;
+	// build a node then a listNode
+	result = nodeTests();
+	result = listTests();
+	result = timeSortedListTest(10000, 1000);
+	//result = testCrc();
+	//result = testPrimes();
+	result=testSlicedList();
+	result=testHashList();
+	result=testMemMon();
 }
 
 

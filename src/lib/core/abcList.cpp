@@ -40,6 +40,12 @@ abcList_c::abcList_c(const char *setName)
 	nodeCount=0;
 	errorReason = ABC_REASON_NONE;
 	isSorted = FALSE;
+
+	// init the locks, etc
+	lockingEnabled = FALSE;
+	writerIsWaiting = FALSE;
+	readerIsWaiting = FALSE;
+	registeredReaders = 0;
 }
 abcList_c::~abcList_c()
 {
@@ -63,45 +69,201 @@ abcList_c::~abcList_c()
 //
 abcResult_e	abcList_c::enableLocking()
 {
-	TRACE_NONIMPL("abcList_c");
-	return ABC_FAIL;
-}
+	// init the lock mutex
+	pthread_mutexattr_t attrs;
+	pthread_mutexattr_init(&attrs);
+	pthread_mutexattr_settype(&attrs, PTHREAD_MUTEX_TYPE);
+	int res = pthread_mutex_init(&mutex,&attrs);
+	if (res)
+	{
+		FATAL_ERROR(ABC_REASON_MUTEX_INIT_FAILURE);
+		return ABC_FAIL;
+	}
+	// now init the condition variables for read and write waiting
+	res = pthread_cond_init(&readerCondVar,NULL);
+	if (res != 0)
+	{
+		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILURE);
+		return ABC_FAIL;
+	}
+	res = pthread_cond_init(&writerCondVar,NULL);
+	if (res != 0)
+	{
+		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILURE);
+		return ABC_FAIL;
+	}
+	lockingEnabled=TRUE;
+	return ABC_PASS;
+} // end abcList_c::enableLocking()
+// disable locking 
 abcResult_e	abcList_c::disableLocking()
 {
-	TRACE_NONIMPL("abcList_c");
-	return ABC_FAIL;
-}
+	if (!lockingEnabled)
+	{
+		// don't fail this silly case... just return
+		return ABC_PASS;
+	}
+	lockingEnabled=FALSE;
+	int res = pthread_cond_destroy(&readerCondVar);
+	if (res != 0)
+	{
+		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILURE);
+		return ABC_FAIL;
+	}
+	res = pthread_cond_destroy(&writerCondVar);
+	if (res != 0)
+	{
+		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILURE);
+		return ABC_FAIL;
+	}
+	res = pthread_mutex_destroy(&mutex);
+	if (res != 0)
+	{
+		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILURE);
+		return ABC_FAIL;
+	}
+	return ABC_PASS;
+} // end abcList_c::disableLocking()
+//
+abcResult_e     abcList_c::lock()
+{
+	if (!lockingEnabled)
+	{
+		FATAL_ERROR(ABC_REASON_MUTEX_NOT_INITIALIZED)
+		return ABC_FAIL;
+	}
+	int res = pthread_mutex_lock(&mutex);
+	if (res != 0)
+	{
+		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILURE);
+		return ABC_FAIL;
+	}
+	return ABC_PASS;
+} // end abcList_c::lock()
+abcResult_e     abcList_c::unlock()
+{
+	if (!lockingEnabled)
+	{
+		FATAL_ERROR(ABC_REASON_MUTEX_NOT_INITIALIZED)
+		return ABC_FAIL;
+	}
+	int res = pthread_mutex_unlock(&mutex);
+	if (res != 0)
+	{
+		FATAL_ERROR(ABC_REASON_LIST_UNLOCK_FAILURE);
+		return ABC_FAIL;
+	}
+	return ABC_PASS;
+} // end abcList_c::lock()
+//
 abcResult_e	abcList_c::readRegister()
 {
-	TRACE_NONIMPL("abcList_c");
-	return ABC_FAIL;
-}
+	lock();
+	// sanity check.  will never get here while write locked!
+
+	if (writerIsWaiting)	// read this as "if writer is waiting for zero registered reads then ..."
+	{
+		// we must therefore wait for the writer to first get the lock and then finish with it.
+		// at which time writer will no longer be waiting... but one or more
+		// readers will still be waiting
+		readerIsWaiting=TRUE;
+		pthread_cond_wait(&writerCondVar,&mutex);	// unlocked while waiting
+		readerIsWaiting=FALSE;
+	}
+	registeredReaders++;
+	unlock();
+	return ABC_PASS;
+} // end abcList_c::readRegister();
+//
 abcResult_e	abcList_c::readRegisterNoWait()
 {
-	TRACE_NONIMPL("abcList_c");
-	return ABC_FAIL;
-}
+	lock();
+	if (writerIsWaiting)	// read this as "if writer waiting for zero registered reads then ..."
+	{
+		// then we should  not increase the number of readers
+		// so we'll return with status of RETRY
+		unlock();
+		return ABC_RETRY;	// instead tell user to try again
+	}
+	registeredReaders++;
+	unlock();
+	return ABC_PASS;
+} // end abcList_c::readRegisterNoWait()
+//
 abcResult_e	abcList_c::readRelease()
 {
-	TRACE_NONIMPL("abcList_c");
-	return ABC_FAIL;
-}
+	lock();
+	if (--registeredReaders < 0)
+	{
+		WARNING(ABC_REASON_LIST_BAD_READ_RELEASE_COUNT);
+		registeredReaders = 0;
+	}
+	if (writerIsWaiting && (registeredReaders == 0))
+	{
+		// wakeup a single writer (this reader is sending a signal)
+		pthread_cond_signal(&readerCondVar);
+	}
+	unlock();
+	return ABC_PASS;
+} // end abcList_c::readRelease()
+//
 abcResult_e	abcList_c::writeLock()
 {
-	TRACE_NONIMPL("abcList_c");
-	return ABC_FAIL;
-}
+	// locking write requires waiting for all readers to be done.
+	abcResult_e lockStatus = lock();
+	if (lockStatus != ABC_PASS)
+	{
+		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILURE);
+		return ABC_FAIL;	// returning not locked (lock failed)
+	}
+	if (registeredReaders > 0)
+	{
+		// we must wait for all readers to complete
+		// wait for a signal from the readRelease that
+		// all readers are done
+		writerIsWaiting = TRUE;
+		pthread_cond_wait(&readerCondVar,&mutex);
+		writerIsWaiting = FALSE;
+	}
+	// NOTICE WE ARE RETURNING LOCKED !!!
+	return ABC_PASS;
+} // end abcList_c::writeLock()
+//
 abcResult_e	abcList_c::writeLockNoWait()
 {
-	TRACE_NONIMPL("abcList_c");
-	return ABC_FAIL;
-}
+	// locking write requires waiting for all readers to be done.
+	abcResult_e lockStatus = lock();
+	if (lockStatus != ABC_PASS)
+	{
+		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILURE);
+		return ABC_FAIL;	// returning not locked (lock failed)
+	}
+	if (registeredReaders > 0)
+	{
+		unlock();
+		return ABC_RETRY;
+	}
+	// NOTICE WE ARE RETURNING LOCKED !!!
+	return ABC_PASS;
+} // end	abcList_c::writeLockNoWait()
 abcResult_e	abcList_c::writeRelease()
 {
-	TRACE_NONIMPL("abcList_c");
-	return ABC_FAIL;
-}
-
+	// WE ENTER LOCKED !!
+	if (readerIsWaiting)
+	{
+		// we're waiting on the writer to be done (which we are now !)
+		// if any reader  waiting on the writer (us) broadcast to any and all
+		// that we're done.  They will all unblock at once.
+		pthread_cond_broadcast(&writerCondVar);
+	}
+	abcResult_e unlockResult = unlock();
+	if (unlockResult != ABC_PASS)
+	{
+		FATAL_ERROR(ABC_REASON_LIST_UNLOCK_FAILURE);
+		return ABC_FAIL;
+	}
+	return ABC_PASS;
+} // end abcList_c::writeRelease()
 
 // Error handling stuff & print stuff
 void abcList_c::setErrorReason(abcReason_e reason)
@@ -722,7 +884,7 @@ abcList_c *abcList_c::clone()
 
 
 	//  check to avoid object size change  disaster.
-	#define APPROVED_SIZE 104
+	#define APPROVED_SIZE 272
 	#define SIZE_CHECK_OBJ abcList_c
 	if (sizeof(SIZE_CHECK_OBJ) - APPROVED_SIZE)
 	{
@@ -789,8 +951,22 @@ abcResult_e abcList_c::copyOut(abcList_c *targetOfCopy)
 		walkNode = (abcListNode_c *)walkNode->next();	// next returns an abcNode_c*
 	}
 
+	// handling cloning the locks.
+	targetOfCopy->lockingEnabled = FALSE;
+	targetOfCopy->writerIsWaiting = FALSE;
+	targetOfCopy->readerIsWaiting = FALSE;
+	targetOfCopy->registeredReaders = 0;
+	if (lockingEnabled)
+	{
+		targetOfCopy->enableLocking();
+	}
+
+
 	// TODO: all locks and other additions must find their way here.
+	// not copying head, tail, curr.  nodeCount, errorReason
 	targetOfCopy->isSorted = isSorted;
+
+	
 	return ABC_PASS;
 }
 
@@ -1007,7 +1183,7 @@ abcList_c *abcSlicedList_c::clone()
 	TRACE_ENTRY("abcSlicedList_c");
 
 	//  check to avoid object size change  disaster.
-	#define APPROVED_SIZE 120
+	#define APPROVED_SIZE 288
 	#define SIZE_CHECK_OBJ abcSlicedList_c
 	if (sizeof(SIZE_CHECK_OBJ) - APPROVED_SIZE)
 	{
@@ -1543,6 +1719,7 @@ abcHashList_c::abcHashList_c(const char *setName)
 	{
 		name = strdup(setName);
 	}
+	abcHashList_c::initProtected(100,5, 220); // slices, resizeThreshold, grownthPrecentage
 }
 abcHashList_c::~abcHashList_c()
 {
@@ -1556,15 +1733,17 @@ abcHashList_c::~abcHashList_c()
 // must set the number of slices being used
 // this size is fixed for the life of the object.
 // hashList is different
+
+// overloaded to fail... 
 abcResult_e abcHashList_c::init(int sliceCount)
 {
-	return abcHashList_c::init(sliceCount,10,700);
+	return ABC_FAIL;
 }
 // hashList init sets up parameters for automatic growth [ which is not currently implemented ]
-abcResult_e abcHashList_c::init(int startingSliceCount,int missThresholdForResize, int growthPercent)
+abcResult_e abcHashList_c::initProtected(int startingSliceCount,int missThresholdForResize, int growthPercent)
 {
 	TRACE_ENTRY("abcHashList_c");
-	if (sliceCount != 0)
+	if (sliceCount != 0 && nodeCount > 0)
 	{
 		FATAL_ERROR(ABC_REASON_LIST_ALREADY_INITIALIZED);
 		return ABC_FAIL;
@@ -1574,6 +1753,12 @@ abcResult_e abcHashList_c::init(int startingSliceCount,int missThresholdForResiz
 	{
 		FATAL_ERROR(ABC_REASON_LIST_BAD_SLICE_COUNT);
 		return ABC_FAIL;
+	}
+
+	if (sliceArray)
+	{
+		free(sliceArray);
+		sliceArray = NULL;
 	}
 
 	sliceCount = abcGlobalCore->findPrime(startingSliceCount);	// always use a prime sized array for better/even spread of indexes
@@ -1615,7 +1800,7 @@ abcList_c *abcHashList_c::clone()
 	TRACE_ENTRY("abcHashList_c");
 
 	//  check to avoid object size change  disaster.
-	#define APPROVED_SIZE 128
+	#define APPROVED_SIZE 304
 	#define SIZE_CHECK_OBJ abcHashList_c
 	if (sizeof(SIZE_CHECK_OBJ) - APPROVED_SIZE)
 	{
@@ -1648,6 +1833,9 @@ abcResult_e abcHashList_c::copyOut(abcHashList_c *targetOfCopy)
 	// but we will use abcListNode_c's copyOut
 	abcResult_e coResult = abcSlicedList_c::copyOut(targetOfCopy);
 
+	targetOfCopy->specialInit = specialInit;
+	targetOfCopy->startingSliceCount = startingSliceCount;
+	targetOfCopy->startingResizeThreshold = startingResizeThreshold;
 	targetOfCopy->resizeHashBucketThreshold = resizeHashBucketThreshold;
 	targetOfCopy->resizeHashGrowthPercentage = resizeHashGrowthPercentage;
 
@@ -1845,28 +2033,26 @@ abcResult_e abcHashList_c::resizeHashTable()
 
 	// figure new array Size.
 	// we'll add some internal knobs
-	int64_t primeEst = ((int64_t)sliceCount * (int64_t)resizeHashGrowthPercentage) / 100LL;
+	int64_t primeEst = ((int64_t)sliceCount * ((100LL + (int64_t)resizeHashGrowthPercentage))) / 100LL;
 	sliceCount = abcGlobalCore->findPrime(primeEst);
 	sliceArray = (abcListSlice_s *)calloc(sliceCount, sizeof(abcListSlice_s));
-	double increasedMissThreshold = pow((double)resizeHashBucketThreshold,(1.09));
-	resizeHashBucketThreshold = (int)(increasedMissThreshold + 0.5);
-	resizeHashGrowthPercentage = (resizeHashGrowthPercentage * 80 ) / 100;
-	DEBUG_A("New resizing params:  Threshold=%d  resizePrecentage=%d\n", resizeHashBucketThreshold,resizeHashGrowthPercentage);
+	resizeHashBucketThreshold += 1;
+	DEBUG_A("After resizing, new resizing params: SliceCount=%d Threshold=%d  resizePrecentage=%d\n", sliceCount, resizeHashBucketThreshold,resizeHashGrowthPercentage);
 
 	sliceArray = (abcListSlice_s *)calloc(sliceCount, sizeof(abcListSlice_s));
 
-	headNode = tailNode = NULL;
-	nodeCount = 0;
 
-	int loopCount = 0;
 	abcListNode_c *walkNode = headNode;
 	abcListNode_c *freeNode;
+	headNode = tailNode = NULL;
+	nodeCount = 0;
+	int loopCount = 0;
 	while (walkNode)
 	{
 		// pullHead
 		freeNode = walkNode;
 		walkNode = (abcListNode_c *)walkNode->nextNode;
-		walkNode->prevNode = NULL;
+		freeNode->prevNode = NULL;
 		freeNode->nextNode = NULL;
 		freeNode->owner = NULL;
 
@@ -1881,6 +2067,7 @@ abcResult_e abcHashList_c::resizeHashTable()
 	}
 	if (loopCount != localNodeCount)
 	{
+		DEBUG_A("loopCount = %d, loopNodeCount=%lld\n",loopCount,localNodeCount);
 		FATAL_ERROR(ABC_REASON_LIST_HASH_RESIZE_FAILED)
 		return ABC_FAIL;
 	}

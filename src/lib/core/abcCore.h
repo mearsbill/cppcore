@@ -39,27 +39,39 @@ typedef struct abcPrime_s
 class abcCore_c
 {
 	private:
+		pthread_mutex_t     mutex;
+
 		abcReason_e errorReason;			// this is for small objects that can't afford 8 bytes for this field
+
+		// our private locking
+		abcResult_e  mutexInit();
+		abcResult_e  mutexLock();
+		abcResult_e  mutexUnlock();
+
 
 		// for prime numbers reentrancy
 		abcPrime_s	*sieveArray;
 		int32_t		sieveArraySize;
 		int32_t		sievePrimeCount;
 		int32_t		sieveWorkingPrime;
+		abcResult_e	initPrimes(int maxValue=1000);		
 
 		// for crc calculations... the static tables for our 2 popular CRCs
 		uint64_t	crc32Table[256];
 		uint64_t	crc64Table[256];
 
 	public:
+		// lifecycle and control
 		abcCore_c();
 		~abcCore_c();
-
 		abcResult_e	init(int initVal);
+		abcResult_e	shutdown(int shutdownVal);
+
+		// depricate this.... or restrict usage to just this object....
+		// except its a singleton, so its not of much value
 		void		setErrorReason(abcReason_e reasonSet);
 		abcReason_e	getErrorReason();
 
-		abcResult_e	initPrimes(int maxValue=1000);
 		abcResult_e	updatePrimes(int maxValue);
 		int			findPrime(int target);
 		abcResult_e printPrimes(int low=2, int high=100);
@@ -71,12 +83,20 @@ class abcCore_c
 		uint64_t	computeCrc64(uint8_t *strPtr,int strLen);
 }; // end class abcCore_c
 
+// ==========   global interfaces =============
 extern abcCore_c *abcGlobalCore;
-extern abcCore_c *abcGlobalCore;
-// core.cpp prototypes
+extern abcMemMon_c *abcGlobalMem;
+
+// abc api interface.... with init and shutdown
+//
 abcResult_e abcInit(int initVal);
+abcResult_e abcShutdown(int initVal);
+//
+// global error reporting.... (depricate this !!)
 void abcGlobalSetErrorReason(abcReason_e reason);
 void abcGlobalResetErrorReason();
+
+// random things of value
 double  randomPercentage();
 abcTime1m_t getTime1m();
 

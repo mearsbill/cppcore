@@ -10,7 +10,8 @@
 
 #include "abcCore.h"
 
-abcCore_c *abcGlobalCore = NULL;
+abcCore_c	*abcGlobalCore = NULL;
+abcMemMon_c *abcGlobalMem = NULL;
 
 
 double  randomPercentage()
@@ -33,6 +34,7 @@ abcResult_e abcInit(int initVal)
 	if (!abcGlobalCore)
 	{
 		abcGlobalCore = new abcCore_c();
+		abcGlobalMem = new abcMemMon_c("abcGlobalMemMon");	// memory tracker always on
 		return abcGlobalCore->init(initVal);
 	}
 	else
@@ -40,6 +42,23 @@ abcResult_e abcInit(int initVal)
 		fprintf(stderr,"%s already initialized\n",__FUNCTION__);
 		return ABC_FAIL;
 	}
+}
+abcResult_e abcShutdown(int displayVal)
+{
+	if (!abcGlobalCore)
+	{
+		return ABC_FAIL;
+	}
+	else
+	{
+		abcGlobalMem->shutdown(displayVal);
+		abcGlobalCore->shutdown(displayVal);
+		delete abcGlobalCore;
+		delete abcGlobalMem;
+		abcGlobalCore = NULL;
+		abcGlobalMem = NULL;
+	}
+	return ABC_PASS;
 }
 void abcGlobalSetErrorReason(abcReason_e reason)
 {
@@ -59,18 +78,64 @@ void abcGlobalResetErrorReason()
 abcCore_c::abcCore_c()
 {
 	errorReason = ABC_REASON_NONE;
+	mutexInit();
 }
 abcCore_c::~abcCore_c()
 {
+	pthread_mutex_destroy(&mutex);
 }
 
 abcResult_e abcCore_c::init(int initVal)
 {
+	mutexLock();
+
 	initPrimes();	// can pass in a non-default number
 	generateCrc32Table();
 	generateCrc64Table();
+
+	mutexUnlock();
+
 	return ABC_PASS;
 }
+
+abcResult_e abcCore_c::shutdown(int shutdownVal)
+{
+	return ABC_PASS;
+}
+
+
+/// mutex handling
+abcResult_e abcCore_c::mutexInit()
+{
+	pthread_mutexattr_t attrs;
+	pthread_mutexattr_init(&attrs);
+	pthread_mutexattr_settype(&attrs, PTHREAD_MUTEX_TYPE);
+	int initFail=pthread_mutex_init(&mutex,&attrs);
+	if (initFail)
+	{
+		return ABC_FAIL;
+	}
+	return ABC_PASS;
+}
+abcResult_e abcCore_c::mutexLock()
+{
+	int lockFail=pthread_mutex_lock(&mutex);
+	if (lockFail)
+	{
+		return ABC_FAIL;
+	}
+	return ABC_PASS;
+}
+abcResult_e abcCore_c::mutexUnlock()
+{
+	int unlockFail=pthread_mutex_unlock(&mutex);
+	if (unlockFail)
+	{
+		return ABC_FAIL;
+	}
+	return ABC_PASS;
+}
+
 
 void abcCore_c::setErrorReason(abcReason_e reasonSet)
 {
@@ -84,6 +149,7 @@ abcReason_e abcCore_c::getErrorReason()
 
 abcResult_e abcCore_c::initPrimes(int maxValue)
 {
+	// enter here locked please
 	sieveArray = (abcPrime_s *)calloc(maxValue,sizeof(abcPrime_s));
 	sieveArray[1].primeRank = 1;	// special case
 	sieveArraySize = maxValue;
@@ -126,6 +192,7 @@ abcResult_e abcCore_c::initPrimes(int maxValue)
 // and then extending to to the new max
 abcResult_e  abcCore_c::updatePrimes(int newSieveArraySize)
 {
+	mutexLock();
 	if (newSieveArraySize < sieveArraySize)
 	{
 		FATAL_ERROR(ABC_REASON_PARAM_TOO_SMALL);
@@ -190,6 +257,9 @@ abcResult_e  abcCore_c::updatePrimes(int newSieveArraySize)
 	sieveArray  = newSieveArray;
 	sieveArraySize = newSieveArraySize;
 	//printf("Last prime = %d, with rank %d on arraySize of %d\n",sieveWorkingPrime, sievePrimeCount,sieveArraySize);
+
+	// unlock before exit
+	mutexUnlock();
 	return ABC_PASS;
 } // abcCore_c::updatePrimes()
 
@@ -266,6 +336,7 @@ abcResult_e abcCore_c::generateCrc32Table()
 
 uint32_t abcCore_c::computeCrc32( uint32_t seed,  uint8_t *buf, int len)
 {
+	// enter locked please
 	uint32_t crc = ~seed;
 	uint8_t octet;
 	uint8_t *p, *endP;
@@ -284,6 +355,7 @@ uint32_t abcCore_c::computeCrc32( uint32_t seed,  uint8_t *buf, int len)
 // 
 abcResult_e abcCore_c::generateCrc64Table()
 {
+	// enter locked please
 	uint64_t poly = 0xc96c5795d7870f42LL;	// magic !!
 	int i;
     for( i=0; i<256; ++i)

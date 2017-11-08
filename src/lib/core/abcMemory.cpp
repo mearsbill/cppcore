@@ -145,7 +145,7 @@ abcMemStatsNode_c::~abcMemStatsNode_c()
 	free(objTypeName);
 }
 
-// infrastructure support for subclasses pf abcListNode_c
+// infrastructure support for subclasses of abcListNode_c
 char *abcMemStatsNode_c::getObjType()
 {
 	return (char *)"abcMemStatsNode_c";
@@ -281,7 +281,7 @@ abcResult_e	abcMmapNode_c::setLocNewPtr(abcMemNameNode_c *newLoc)
 }
 abcMemNameNode_c *abcMmapNode_c::getLocNewPtr()
 {
-	return locNewPtr;;
+	return locNewPtr;
 }
 abcResult_e	abcMmapNode_c::setLocDelPtr(abcMemNameNode_c *delLoc)
 {
@@ -308,11 +308,14 @@ abcMemMon_c::abcMemMon_c(const char *setName)
 		name = strdup(setName);
 	}
 	mmapList = new abcHashList_c("mmapList");
-	mmapList->init(1000,10,500);
+	mmapList->initProtected(1000,3,300);
+	mmapList->enableLocking();
 	nameList = new abcHashList_c("nameList");
-	nameList->init(2000,10,500);
+	nameList->initProtected(2000,6,300);
+	nameList->enableLocking();
 	statsList = new abcHashList_c("statsList");;
-	statsList->init(500,10,500);
+	statsList->initProtected(400,6,200);
+	statsList->enableLocking();
 
 	errorReason = ABC_REASON_NONE;
 }
@@ -350,82 +353,6 @@ abcReason_e abcMemMon_c::getErrorReason()
 	return errorReason;
 }
 
-#if 0
-void *abcMemMon_c::interceptClassNew(void *objAddr, char *className, int objectSize, char *fileName, int fileLine, char *fileFunction)
-{
-	// we'll make a search key based on the object address and confirm we don't already have a record for that address.  Should be no way to fail here
-	nodeKey_s searchKey;
-	nodeKey_setPtr(&searchKey,objAddr);
-	abcMmapNode_c *mmapNode = (abcMmapNode_c *)mmapList->findFirst(&searchKey);
-	if (mmapNode)
-	{
-		// serious error to find the address we're mallocing on our list already
-		FATAL_ERROR(ABC_REASON_MMAP_DUPLICATE_ADDR_INVALID);
-		return NULL;
-	}
-	// return is null... but was there an err
-	abcReason_e reason = mmapList->getErrorReason();
-	if (reason != ABC_REASON_NONE)
-	{
-		// move the error reason to our object
-		mmapList->setErrorReason(ABC_REASON_UNRECOVERABLE_FAILURE);
-		return NULL;
-	}
-
-	// now we've confirmed no dup, lets make the node
-	mmapNode = new abcMmapNode_c(objAddr);
-	abcResult_e result = mmapList->add(mmapNode);
-	if (result != ABC_PASS)
-	{
-		FATAL_ERROR(ABC_REASON_MMAP_ADD_FAILED);
-		return NULL;
-	}
-
-	//
-	// build the objName string and hashKey.  Use this to find or build our MemStatsNode
-	//
-	char *objHashName = abcMemNameNode_c::buildObjectClassString(className);
-	uint64_t nameHash = abcMemNameNode_c::calcNameHash(objHashName);
-	nodeKey_setInt(&searchKey,nameHash);
-	abcMemStatsNode_c *statsNode = (abcMemStatsNode_c *)statsList->findFirst(&searchKey);
-	if (!statsNode)
-	{
-		// we didn't find it, so we'll build it here
-		statsNode = new abcMemStatsNode_c(nameHash, objHashName, objectSize,1);
-		statsList->add(statsNode);
-	}
-	else
-	{
-		statsNode->incrCreates();
-	}
-	free(objHashName);	// its now stored in the nameNode
-	mmapNode->setStatsNode(statsNode);
-
-	//
-	// we now have a stats record... still need the nameNode for the newLoc
-	//
-	char *newLoc = abcMemNameNode_c::buildLocationString(fileName, fileLine, fileFunction);
-	uint64_t locHash = abcMemNameNode_c::calcNameHash(newLoc);
-	nodeKey_setInt(&searchKey,locHash);
-	abcMemNameNode_c *nameNode = (abcMemNameNode_c *)nameList->findFirst(&searchKey);
-	if (nameNode)
-	{
-		nameNode->incrUseCount();		// another object create from this source file/line spot.
-	}
-	else
-	{
-		// didn't find newLoc on the hashList, lets make it and add it to our list
-		nameNode = new abcMemNameNode_c (locHash,newLoc,1);
-		nameList->add(nameNode);
-	}
-	free(newLoc);
-	mmapNode->setLocNewPtr(nameNode);
-	
-
-	return objAddr;
-}
-#endif 
-
 void *abcMemMon_c::interceptClassNew(void *objAddr, char *className, int objectSize, char *fileName, int fileLine, char *fileFunction)
 {
 	// build the right hasName based on the object type... we're a class
@@ -449,17 +376,29 @@ void *abcMemMon_c::interceptRawNew(void *rawAddr, int objectSize, char *fileName
 
 void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int objectSize, char *fileName, int fileLine, char *fileFunction)
 {
-	// build a search key from the memory address
 	nodeKey_s searchKey;
+	abcMmapNode_c *mmapNode;
+
+	///////////////////////////========================
+	abcResult_e wlResult = mmapList->writeLock();
+	if (wlResult != ABC_PASS)
+	{
+		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILURE);
+		return NULL;
+	}
+
+#ifdef ABC_MEM_STRICT_CHECKING
+	// build a search key from the memory address
+	// and verify that we don't have this address.
+	// Caution... we can malloc and free the same address over and over again !
 	nodeKey_setPtr(&searchKey,objAddr);
 
-
-
-	abcMmapNode_c *mmapNode = (abcMmapNode_c *)mmapList->findFirst(&searchKey);
+	mmapNode = (abcMmapNode_c *)mmapList->findFirst(&searchKey);
 	if (mmapNode)
 	{
 		// serious error to find the address we're mallocing on our list already
 		FATAL_ERROR(ABC_REASON_MMAP_DUPLICATE_ADDR_INVALID);
+		mmapList->writeRelease();
 		return NULL;
 	}
 	// return is null... but was there an err
@@ -468,12 +407,16 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	{
 		// move the error reason to our object
 		mmapList->setErrorReason(ABC_REASON_UNRECOVERABLE_FAILURE);
+		mmapList->writeRelease();
 		return NULL;
 	}
+#endif
 
 	// now we've confirmed no dup, lets make the node
 	mmapNode = new abcMmapNode_c(objAddr);
 	abcResult_e result = mmapList->add(mmapNode);
+	mmapList->writeRelease();
+	///////////////////////////========================
 	if (result != ABC_PASS)
 	{
 		FATAL_ERROR(ABC_REASON_MMAP_ADD_FAILED);
@@ -485,6 +428,10 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	//
 	uint64_t nameHash = abcMemNameNode_c::calcNameHash(objHashName);
 	nodeKey_setInt(&searchKey,nameHash);
+
+	//////////////////////////////////////////////////
+	// write lock stats list for this critical section
+	statsList->writeLock();
 	abcMemStatsNode_c *statsNode = (abcMemStatsNode_c *)statsList->findFirst(&searchKey);
 	if (!statsNode)
 	{
@@ -498,6 +445,8 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	}
 	free(objHashName);	// its now stored in the nameNode
 	mmapNode->setStatsNode(statsNode);
+	statsList->writeRelease();	// write release statsList
+	//////////////////////////////////////////////////
 
 	//
 	// we now have a stats record... still need the nameNode for the newLoc
@@ -505,6 +454,8 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	char *newLoc = abcMemNameNode_c::buildLocationString(fileName, fileLine, fileFunction);
 	uint64_t locHash = abcMemNameNode_c::calcNameHash(newLoc);
 	nodeKey_setInt(&searchKey,locHash);
+
+	nameList->writeLock();	// lock the list for all access
 	abcMemNameNode_c *nameNode = (abcMemNameNode_c *)nameList->findFirst(&searchKey);
 	if (nameNode)
 	{
@@ -518,6 +469,8 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	}
 	free(newLoc);
 	mmapNode->setLocNewPtr(nameNode);
+
+	nameList->writeRelease(); // release the writelock
 	
 
 	return objAddr;
@@ -631,6 +584,11 @@ void abcMemMon_c::printMemoryStats()
 		statsWalkNode = (abcMemStatsNode_c *)statsWalkNode->next();
 	}
 	fprintf(stderr,"======== Total Outstanding Memory is %lld\n",netOutstanding);
+}
+
+void abcMemMon_c::shutdown(int shutdownVal)
+{
+	abcMemMon_c::printMemoryStats();
 }
 
 ////////////////////////////
