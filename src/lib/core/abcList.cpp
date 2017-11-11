@@ -76,20 +76,20 @@ abcResult_e	abcList_c::enableLocking()
 	int res = pthread_mutex_init(&mutex,&attrs);
 	if (res)
 	{
-		FATAL_ERROR(ABC_REASON_MUTEX_INIT_FAILURE);
+		FATAL_ERROR(ABC_REASON_MUTEX_INIT_FAILED);
 		return ABC_FAIL;
 	}
 	// now init the condition variables for read and write waiting
 	res = pthread_cond_init(&readerCondVar,NULL);
 	if (res != 0)
 	{
-		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILURE);
+		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILED);
 		return ABC_FAIL;
 	}
 	res = pthread_cond_init(&writerCondVar,NULL);
 	if (res != 0)
 	{
-		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILURE);
+		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILED);
 		return ABC_FAIL;
 	}
 	lockingEnabled=TRUE;
@@ -107,19 +107,19 @@ abcResult_e	abcList_c::disableLocking()
 	int res = pthread_cond_destroy(&readerCondVar);
 	if (res != 0)
 	{
-		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILURE);
+		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILED);
 		return ABC_FAIL;
 	}
 	res = pthread_cond_destroy(&writerCondVar);
 	if (res != 0)
 	{
-		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILURE);
+		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILED);
 		return ABC_FAIL;
 	}
 	res = pthread_mutex_destroy(&mutex);
 	if (res != 0)
 	{
-		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILURE);
+		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILED);
 		return ABC_FAIL;
 	}
 	return ABC_PASS;
@@ -135,7 +135,7 @@ abcResult_e     abcList_c::lock()
 	int res = pthread_mutex_lock(&mutex);
 	if (res != 0)
 	{
-		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILURE);
+		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILED);
 		return ABC_FAIL;
 	}
 	return ABC_PASS;
@@ -150,7 +150,7 @@ abcResult_e     abcList_c::unlock()
 	int res = pthread_mutex_unlock(&mutex);
 	if (res != 0)
 	{
-		FATAL_ERROR(ABC_REASON_LIST_UNLOCK_FAILURE);
+		FATAL_ERROR(ABC_REASON_LIST_UNLOCK_FAILED);
 		return ABC_FAIL;
 	}
 	return ABC_PASS;
@@ -213,7 +213,7 @@ abcResult_e	abcList_c::writeLock()
 	abcResult_e lockStatus = lock();
 	if (lockStatus != ABC_PASS)
 	{
-		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILURE);
+		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILED);
 		return ABC_FAIL;	// returning not locked (lock failed)
 	}
 	if (registeredReaders > 0)
@@ -235,7 +235,7 @@ abcResult_e	abcList_c::writeLockNoWait()
 	abcResult_e lockStatus = lock();
 	if (lockStatus != ABC_PASS)
 	{
-		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILURE);
+		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILED);
 		return ABC_FAIL;	// returning not locked (lock failed)
 	}
 	if (registeredReaders > 0)
@@ -259,7 +259,7 @@ abcResult_e	abcList_c::writeRelease()
 	abcResult_e unlockResult = unlock();
 	if (unlockResult != ABC_PASS)
 	{
-		FATAL_ERROR(ABC_REASON_LIST_UNLOCK_FAILURE);
+		FATAL_ERROR(ABC_REASON_LIST_UNLOCK_FAILED);
 		return ABC_FAIL;
 	}
 	return ABC_PASS;

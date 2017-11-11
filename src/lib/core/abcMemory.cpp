@@ -310,6 +310,9 @@ abcMemMon_c::abcMemMon_c(const char *setName)
 	mmapList = new abcHashList_c("mmapList");
 	mmapList->initProtected(1000,3,300);
 	mmapList->enableLocking();
+	mmapList = new abcHashList_c("delmapList");
+	mmapList->initProtected(1000,3,300);
+	mmapList->enableLocking();
 	nameList = new abcHashList_c("nameList");
 	nameList->initProtected(2000,6,300);
 	nameList->enableLocking();
@@ -318,6 +321,18 @@ abcMemMon_c::abcMemMon_c(const char *setName)
 	statsList->enableLocking();
 
 	errorReason = ABC_REASON_NONE;
+
+	// zero our incremental stats
+	netBytesInUse = 0;
+	maxMemoryUsed = 0;
+	totalBytesMalloced = 0;
+	totalBytesFreed = 0;
+	netMallocsInUse = 0;
+	maxMallocsUsed = 0;
+	totalMallocCount = 0;
+	totalFreeCount = 0;
+
+
 }
 
 abcMemMon_c::~abcMemMon_c()
@@ -383,7 +398,7 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	abcResult_e wlResult = mmapList->writeLock();
 	if (wlResult != ABC_PASS)
 	{
-		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILURE);
+		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILED);
 		return NULL;
 	}
 
@@ -415,11 +430,11 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	// now we've confirmed no dup, lets make the node
 	mmapNode = new abcMmapNode_c(objAddr);
 	abcResult_e result = mmapList->add(mmapNode);
-	mmapList->writeRelease();
 	///////////////////////////========================
 	if (result != ABC_PASS)
 	{
 		FATAL_ERROR(ABC_REASON_MMAP_ADD_FAILED);
+		mmapList->writeRelease();
 		return NULL;
 	}
 
@@ -443,9 +458,11 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	{
 		statsNode->incrCreates();
 	}
+	// unblock the statsList asap
+	statsList->writeRelease();	
+
 	free(objHashName);	// its now stored in the nameNode
 	mmapNode->setStatsNode(statsNode);
-	statsList->writeRelease();	// write release statsList
 	//////////////////////////////////////////////////
 
 	//
@@ -471,7 +488,21 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	mmapNode->setLocNewPtr(nameNode);
 
 	nameList->writeRelease(); // release the writelock
-	
+	mmapList->writeRelease();
+
+	// update incremental stats
+	totalBytesMalloced += objectSize;
+	netBytesInUse += objectSize;
+	if (netBytesInUse > maxMemoryUsed)
+	{
+		maxMemoryUsed = netBytesInUse;
+	}
+	totalMallocCount++;
+	netMallocsInUse++;
+	if (netMallocsInUse > maxMallocsUsed)
+	{
+		maxMallocsUsed = netMallocsInUse;
+	}
 
 	return objAddr;
 }
@@ -482,31 +513,48 @@ void abcMemMon_c::interceptDelete(void *objAddr, char *fileName, int fileLine, c
 	// we'll make a search key based on the object address and confirm we have a node for that address.
 	nodeKey_s searchKey;
 	nodeKey_setPtr(&searchKey,objAddr);
+
+	// lock the mmap list before manipulation
+	mmapList->writeLock(); 
 	abcMmapNode_c *mmapNode = (abcMmapNode_c *)mmapList->findFirst(&searchKey);
 	if (!mmapNode)
 	{
 		// serious error to delete something that isn't there
 		FATAL_ERROR(ABC_REASON_MMAP_DEL_FAILED);
+		mmapList->writeRelease();
 		return;
 	}
 	// check for double delete
 	if (mmapNode->locDelPtr)
 	{
 		FATAL_ERROR(ABC_REASON_MMAP_ALREADY_DELETED);
+		mmapList->writeRelease();
 		return;
 	}
 
 
+	// we're going to cheat and not lock the stats list
+	// even thought technically we're writing to it (to one of its nodes)
+	//statsList->writeLock(); 
 	// now get to the stats record and record the delete
 	abcMemStatsNode_c *statsNode = mmapNode->getStatsNode();
 	if (!statsNode)
 	{
 		FATAL_ERROR(ABC_REASON_MMAP_STATS_NODE_MISSING);
+		//statsList->writeRelease(); 
+		mmapList->writeRelease(); 
 		return;
 	}
 	statsNode->incrDestroys();	// tabulate the destroy here
+	int64_t objectSize = statsNode->size;
+	//statsList->writeRelease(); 
 
 
+	// we're going to cheat and not lock the name list
+	// even thought technically we're writing to it (to one of its nodes)
+	// nameList->writeLock(); 
+
+	// now get to the stats record and record the delete
 	// lets handle the delete location... the location might exists
 	// but not have been used for this node [ actually its hightly likely ]
 	abcMemNameNode_c *delNameNode = mmapNode->getLocDelPtr();
@@ -516,6 +564,9 @@ void abcMemMon_c::interceptDelete(void *objAddr, char *fileName, int fileLine, c
 		char *delLoc = abcMemNameNode_c::buildLocationString(fileName, fileLine, fileFunction);
 		uint64_t locHash = abcMemNameNode_c::calcNameHash(delLoc);
 		nodeKey_setInt(&searchKey,locHash);
+
+		// lock before search... write lock because we may add to list
+		nameList->writeLock();  // LOCK
 		abcMemNameNode_c *nameNode = (abcMemNameNode_c *)nameList->findFirst(&searchKey);
 		if (!nameNode)
 		{
@@ -525,20 +576,66 @@ void abcMemMon_c::interceptDelete(void *objAddr, char *fileName, int fileLine, c
 		}
 		free(delLoc);
 		mmapNode->setLocDelPtr(delNameNode);
+
+		nameList->writeRelease(); //UNLOCK
 	}
 	delNameNode->incrUseCount();		// another object destroy from this source file/line spot.
+
+	// mmap still locked.... lets move the mmapNode to the deleted list
+	abcResult_e res = mmapList->remove(mmapNode);
+	if (res)
+	{
+		FATAL_ERROR(ABC_REASON_MMAP_DEL_FAILED);
+		return;
+	}
+	res = mmapList->writeRelease();
+	if (res)
+	{
+		FATAL_ERROR(ABC_REASON_MMAP_LOCK_FAILED);
+		return;
+	}
+
+	// now lock and add mmapNode to the deleted list
+	res = delmapList->writeLock();
+	if (res)
+	{
+		FATAL_ERROR(ABC_REASON_MMAP_LOCK_FAILED);
+		return;
+	}
+	res = mmapList->add(mmapNode);
+	if (res)
+	{
+		FATAL_ERROR(ABC_REASON_MMAP_ADD_FAILED);
+		return;
+	}
+
+	// writeRelease the delmapList 
+	res = delmapList->writeRelease();
+	if (res)
+	{
+		FATAL_ERROR(ABC_REASON_MMAP_LOCK_FAILED);
+		return;
+	}
+
+	// update incremental stats
+	totalBytesFreed += objectSize;
+	netBytesInUse -= objectSize;
+	totalFreeCount++;
+	netMallocsInUse--;
 }
 
 void abcMemMon_c::printMemoryMap()
 {
 	fprintf(stderr,"\nMemoryMap... in no particular order\n");
+	mmapList->readRegister();
 	abcMmapNode_c *mapWalkNode = (abcMmapNode_c *)mmapList->getHead();
 	abcMemStatsNode_c *statsNode;
 	abcMemNameNode_c *locNewPtr, *locDelPtr;
 	int64_t netOutstanding = 0;
 	while (mapWalkNode)
 	{
-		//mapWalkNode->print(PRINT_STYLE_LIST_MMAP_LIST);
+
+//mapWalkNode->print(PRINT_STYLE_LIST_MMAP_LIST);
 		//
 		statsNode = mapWalkNode->statsPtr;
 		locNewPtr = mapWalkNode->locNewPtr;
@@ -562,6 +659,7 @@ void abcMemMon_c::printMemoryMap()
 
 		mapWalkNode = (abcMmapNode_c *)mapWalkNode->next();
 	}
+	mmapList->readRelease();
 	fprintf(stderr,"======== Total Outstanding Memory is %lld\n",netOutstanding);
 }
 

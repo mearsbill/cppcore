@@ -12,12 +12,14 @@ extern "C"
 {
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <assert.h>
 #include <string.h>
 #include <sys/time.h>
 #include <signal.h>
 #include <math.h>
 #include <pthread.h>
+#include <errno.h>
 }
 
 // go here for our enum values.

@@ -12,12 +12,9 @@
  #ifndef __ABC_CORE_H__
  #define __ABC_CORE_H__
 
-// Common system includes here.
+// Common system includes not in abcBase.h put here.
 extern "C" 
 {
-#include <stdio.h>
-#include <stdlib.h>
-#include <signal.h>
 }
 
 
@@ -25,6 +22,7 @@ extern "C"
 #include "abcBase.h"
 #include "abcList.h"		// list sits below core.
 #include "abcMemory.h"		// our memory system sits below core as well.
+#include "abcThreads.h"
 
 // prime number sieve storage for reentrancy
 typedef struct abcPrime_s

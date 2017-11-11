@@ -38,6 +38,7 @@
 // thread stuff
 //#define PTHREAD_MUTEX_TYPE PTHREAD_MUTEX_ERRORCHECK_NP // Linux
 #define PTHREAD_MUTEX_TYPE PTHREAD_MUTEX_ERRORCHECK // MAC
+#define ABC_BASE_PRIORITY 10
 
 #endif //__ABC_CONFIG_H__
 // EOF abcConfig.h

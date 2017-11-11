@@ -999,10 +999,41 @@ int main(int argc, char **argv)
 */
 	abcResult_e result;
 
+	abcThread_c *myThread = ABC_NEW_CLASS(abcThread_c,"myThread");
+	if (!myThread)
+	{
+		FATAL_ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
+		return ABC_FAIL;
+	}
+	result = myThread->configure();
+	if (result != ABC_PASS)
+	{
+		FATAL_ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
+		return ABC_FAIL;
+	}
+	DEBUG_A("Got past condifure\n");
+	myThread->start();
+	DEBUG_A("Got past Start\n");
+	int go=TRUE;
+	int counter = 0;
+	while (go)
+	{
+		abcResult_e res = myThread->waitForState(ABC_THREADSTATE_STOPPED,700);
+		abcThreadState_e threadState = myThread->getThreadState();
+		fprintf(stderr,"STATUS:%d:%s  count-up %d\n",res,abcThreadStateAsStr(threadState),counter++);
+		if ((counter > 1000) || (res == ABC_PASS)) go = FALSE;
+	}
+
+/*
+
+
+
 	testNode_c *tn = ABC_NEW_CLASS(testNode_c,);
 	abcGlobalMem->printMemoryStats();
 	ABC_DEL_CLASS(tn);
 	abcGlobalMem->printMemoryStats();
+
+*/
 
 
 	abcResult_e shutdownResult = abcShutdown(1);

@@ -144,14 +144,28 @@ class abcMmapNode_c : public abcListNode_c			// hashlist node keyed by memory ad
 };
 
 
-
+////////////////  ************************  //////////////////
+////////////////     abcMemMon_c            //////////////////
+////////////////  ************************  //////////////////
+// this object + macros handles memory and leak tracking
+//
 class abcMemMon_c // : public abcListNode_c
 {
   private:
   	char			*name;
   	abcHashList_c	*mmapList;			// hashed by address using abcMmapNode_c nodes
+  	abcHashList_c	*delmapList;		// hashed by address using abcMmapNode_c nodes... all the deleted memory segments
 	abcHashList_c	*nameList;			// hashed by name. Hold objectTypeNames and locationStrings using  abcMemNameNode_c
 	abcHashList_c	*statsList;			// hashed by objectName using abcMemStatsNode_c;
+
+	int64_t			netBytesInUse;
+	int64_t			maxMemoryUsed;
+	int64_t			totalBytesMalloced;
+	int64_t			totalBytesFreed;
+	int64_t			netMallocsInUse;
+	int64_t			maxMallocsUsed;
+	int64_t			totalMallocCount;
+	int64_t			totalFreeCount;
 
   protected:
 	abcReason_e	errorReason;
@@ -176,7 +190,7 @@ class abcMemMon_c // : public abcListNode_c
 
 	void printMemoryMap();
 	void printMemoryStats();
-	void shutdown(int shutdownVal);
+	void shutdown(int shutdownVal);	// shutdownVal control reporting
 
 };// end class abcMemMon_c 
 
