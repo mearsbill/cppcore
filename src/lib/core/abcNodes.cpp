@@ -7,13 +7,7 @@
 
 // There are global defines, but placed here to 
 // allow quick checking of stuff without a massive recompile
-//#define _TRACE_METHOD_ENTRIES_
-//#define _TRACE_METHOD_EXITS_
-//#define _TRACE_CONSTRUCTION_
-//#define _TRACE_DESTRUCTION_
 #define _TRACE_NONIMPL_
-//#define _PRINT_DEBUG_ERROR_
-//#define _PRINT_DEBUG_A_
 
 
 #include "abcNodes.h"
@@ -26,7 +20,9 @@ extern "C"
 }
 
 
-// static helper function
+/////////////////////////////
+// static helper functions
+/////////////////////////////
 char *keyTypeAsStr(keyType_e type)
 {
 	switch(type)
@@ -56,13 +52,18 @@ char *keyTypeAsStr(keyType_e type)
 	}
 }
 
-// methods for the nodeKey_s structure
-// we're going to leave the existing abcListNode_c methods alone
+///////////////////////////////////////////////////////
+// methods for  nodeKey_s 
+//
+//  This is the key used by the abcNode_c object for searching
+//
+// abcListNode_c could use these methods  but doesnt
 // and create helper methods for standalone nodeKeys
-nodeKey_s *nodeKey_create()
+void nodeKey_init(nodeKey_s *This)
 {
-	nodeKey_s *This = (nodeKey_s *)calloc(1,sizeof(nodeKey_s));
-	return This;
+	This->type = KEYTYPE_UNKNOWN;
+	This->size = 0;
+	This->value.string = NULL;
 }
 void nodeKey_destroy(nodeKey_s *This)
 {
@@ -73,8 +74,7 @@ void nodeKey_destroy(nodeKey_s *This)
 			if (This->value.string)
 			{
 				free(This->value.string); 
-				This->type = KEYTYPE_UNKNOWN;
-				This->value.string = NULL;
+				nodeKey_init(This);
 			}
 			break;
 
@@ -89,6 +89,7 @@ void nodeKey_destroy(nodeKey_s *This)
 		default:
 			break;
 	}
+	nodeKey_init(This);
 }
 void nodeKey_setInt(nodeKey_s *This, const int64_t intKey)
 {
@@ -112,6 +113,13 @@ void nodeKey_setString(nodeKey_s *This, const char *string)
 {
 	This->type = KEYTYPE_STRING_COPYIN;
 	This->size = 0;
+	// protect against re-key 
+	if (This->value.string)
+	{
+		free(This->value.string);
+		This->value.string = NULL;
+	}
+	// only copying when not null
 	if ( string )
 	{
 		This->value.string = strdup(string);
@@ -126,9 +134,19 @@ void nodeKey_setStringExternal(nodeKey_s *This, const char *string)
 void nodeKey_setBinary(nodeKey_s *This, const uint8_t *binary, int sLen)
 {
 	This->type = KEYTYPE_BIN_COPYIN;
-	This->value.string = (char *)malloc(sLen);
-	This->size = (int32_t)sLen;
-	memcpy(This->value.string,binary,sLen);
+	// protect against re-key 
+	if (This->value.string)
+	{
+		free(This->value.string);
+		This->value.string = NULL;
+		This->size = 0;
+	}
+	if ( binary )
+	{
+		This->value.string = (char *)malloc(sLen);
+		This->size = (int32_t)sLen;
+		memcpy(This->value.string,binary,sLen);
+	}
 }
 void nodeKey_setBinaryExternal(nodeKey_s *This, const uint8_t *binary, int sLen)
 {
@@ -136,9 +154,6 @@ void nodeKey_setBinaryExternal(nodeKey_s *This, const uint8_t *binary, int sLen)
 	This->size = (int32_t)sLen;
 	This->value.string = (char *)binary;
 }
-
-
-
 
 //////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
@@ -148,13 +163,11 @@ void nodeKey_setBinaryExternal(nodeKey_s *This, const uint8_t *binary, int sLen)
 //
 abcNode_c::abcNode_c() 
 {
-	TRACE_CONSTRUCT("abcNode_c");
 	prevNode = NULL;
 	nextNode = NULL;
 }
 abcNode_c::~abcNode_c() 
 {
-	TRACE_DESTROY("abcNode_c");
 }
 
 // public methods
@@ -170,6 +183,7 @@ abcNode_c *abcNode_c::prev()
 // virtual printing and debug print helping
 char *abcNode_c::getObjType()
 {
+	// NOTE: DON"T TRY TO FREE THESE STRINGS
 	return (char *)"abcNode_c";
 }
 char *abcNode_c::getObjName()
@@ -209,6 +223,11 @@ abcResult_e abcNode_c::print(abcPrintStyle_e printStyle)
 	char pBuff[128];
 
 	abcResult_e result = abcNode_c::printBuff(pBuff,128,printStyle);
+	if (result)
+	{
+		ERROR_G(ABC_REASON_PRINTING_FAILED);
+		return result;
+	}
 	fprintf(stderr,"%s\n",pBuff);
 	return ABC_PASS;
 }
@@ -220,69 +239,41 @@ abcResult_e abcNode_c::print(abcPrintStyle_e printStyle)
 //
 abcListNode_c::abcListNode_c()
 {
-	TRACE_CONSTRUCT("abcListNode_c");
-	key.type = KEYTYPE_UNKNOWN; 
-	key.value.string = NULL;
-	key.size = 0;
+	nodeKey_init(&key);	// init to KEYTYPE_UNKNOWN
 	owner = NULL;
 	sliceIndex = 0;
-
+	resetReason();
 }
 abcListNode_c::~abcListNode_c() 
 { 
-	TRACE_DESTROY("abcListNode_c");
-	//
-	// care here.... we need to free only the things that we allocated
-	switch(key.type)
-	{
-	    case KEYTYPE_STRING_COPYIN:
-	    case KEYTYPE_BIN_COPYIN:
-			if (key.value.string)
-			{
-				free(key.value.string); 
-				key.type = KEYTYPE_UNKNOWN;
-			}
-
-	    case KEYTYPE_UNKNOWN:
-	    case KEYTYPE_INT:
-	    case KEYTYPE_DOUBLE:
-	    case KEYTYPE_PTR:
-	    case KEYTYPE_STRING_MEMBER:
-	    case KEYTYPE_STRING_EXTERNAL:
-	    case KEYTYPE_BIN_MEMBER:
-	    case KEYTYPE_BIN_EXTERNAL:
-		default:
-			break;
-	}
-	key.value.ptr = NULL;
+	nodeKey_destroy(&key);
 }
-
+void abcListNode_c::resetReason()
+{
+	reason = ABC_REASON_NONE;
+}
+void abcListNode_c::setReason(abcReason_e setReason)
+{
+	reason = setReason;
+}
+abcReason_e abcListNode_c::getReason()
+{
+	return reason;
+}
 // key cloning is tricky because of the string.... which might be strduped
 // when we clone it, we might need to strdup another copy so it can be freed independently
 // if the value type is a pointer, the pointer itself is the unit of compare and does not get copied.
 //
 abcResult_e abcListNode_c::copyOut(abcListNode_c *other)
 {
-	TRACE_ENTRY("abcListNode_c");
-
 	// we'll verify that the size of the object has not changed.
 	// when it does, you should carefully inspect for missing elements in the cloning process
-    #define APPROVED_SIZE 56
-    #define SIZE_CHECK_OBJ abcListNode_c
-    if (sizeof(SIZE_CHECK_OBJ) - APPROVED_SIZE)
-    {
-        char errStr[128];
-        snprintf(errStr,128,"sizeof \"%s\" changed from %d to %d at %s:%d",STRINGIFY(SIZE_CHECK_OBJ),(int)APPROVED_SIZE,(int)sizeof(SIZE_CHECK_OBJ),__FILE__,__LINE__);
-        PROD_ERROR(errStr);
-        FATAL_ERROR_G(ABC_REASON_OBJECT_SIZE_WRONG);
-        return ABC_FAIL;
-    }
-    #undef APPROVED_SIZE
-    #undef SIZE_CHECK_OBJ
+	OBJ_SIZE_CHECK(abcListNode_c,56);	// will return error Var;
 
 
 	//
 	// element by element copy.  To make sure we get'em all
+	// take special care with the key
 	//
 
 	other->key.type = key.type;
@@ -300,11 +291,7 @@ abcResult_e abcListNode_c::copyOut(abcListNode_c *other)
 	    case KEYTYPE_BIN_MEMBER:
 	    case KEYTYPE_STRING_MEMBER:
 			{
-				if (!key.value.string)
-				{
-					FATAL_ERROR_G(ABC_REASON_NODE_PARAM_IS_NULL);
-					return ABC_FAIL;
-				}
+				CHECK_ERROR(!key.value.string,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
 				// we're assuming  child classes have copied their personal data so we can clone it
 				// calculate Parent Offset.
 				int64_t offset = (key.value.string - (char *)this);
@@ -325,53 +312,57 @@ abcResult_e abcListNode_c::copyOut(abcListNode_c *other)
 	}
 	other->owner = NULL;
 	other->sliceIndex = sliceIndex;
+	other->reason = reason;
 	
 	// should be returning with the payload copied but the owner and the prev/next variables NULL
-	TRACE_EXIT("abcListNode_c");
 	return ABC_PASS;
-}
+} // end abcListNode_c::copyOut()
+//
 abcListNode_c *abcListNode_c::clone()
 {
-	TRACE_ENTRY("abcListNode_c");
 	abcListNode_c *copy = new abcListNode_c();	// make right storage
 	abcListNode_c::copyOut(copy);				// then copy guts
-	TRACE_EXIT("abcListNode_c");
 	return copy;
 }
 
 // this method returns the key used for hashing... which in the case of a string
 // is a Crc64 of the string clipped to be positive.  Modulus operation is not performed bere.
-uint64_t abcListNode_c::calcKeyHash()
+uint64_t abcListNode_c::calcKeyHash(abcResult_e *resultOut)
 {
-	return abcListNode_c::calcKeyHash(&key);
+	return abcListNode_c::calcKeyHash(&key, resultOut);
 }
-uint64_t abcListNode_c::calcKeyHash(struct nodeKey_s *keyOnly)
+uint64_t abcListNode_c::calcKeyHash(struct nodeKey_s *keyOnly,abcResult_e *resultOut)
 {
 	switch (keyOnly->type)
 	{
 		case KEYTYPE_INT:
 		case KEYTYPE_PTR:
+			if (resultOut) *resultOut = ABC_PASS;
 			return (uint64_t)(keyOnly->value.intgr);
 		case KEYTYPE_DOUBLE:
-			WARNING_G(ABC_REASON_NODE_KEY_INVALID_HASH);
+			WARNING(ABC_REASON_NODE_KEY_INVALID_HASH);
+			if (resultOut) *resultOut = ABC_PASS;
 			return (uint64_t)(keyOnly->value.dbl);
 		case KEYTYPE_STRING_COPYIN:
 		case KEYTYPE_STRING_MEMBER:
 		case KEYTYPE_STRING_EXTERNAL:
 			{
 				int strSize = keyOnly->size;
-				return (abcGlobalCore->computeCrc64((uint8_t *)keyOnly->value.string,strSize));
+				if (resultOut) *resultOut = ABC_PASS;
+				return (globalCore->computeCrc64((uint8_t *)keyOnly->value.string,strSize));
 			}
 		case KEYTYPE_BIN_COPYIN:
 		case KEYTYPE_BIN_MEMBER:
 		case KEYTYPE_BIN_EXTERNAL:
 			{
 				int strSize = strlen(keyOnly->value.string);
-				return (abcGlobalCore->computeCrc64((uint8_t *)keyOnly->value.string,strSize));
+				if (resultOut) *resultOut = ABC_PASS;
+				return (globalCore->computeCrc64((uint8_t *)keyOnly->value.string,strSize));
 			}
 		case KEYTYPE_UNKNOWN:
 		default:
-			FATAL_ERROR_G(ABC_REASON_NODE_KEY_TYPE_INVALID);
+			ERROR(ABC_REASON_NODE_KEY_TYPE_INVALID);
+			if (resultOut) *resultOut = ABC_FAIL;
 			return 0;
 	}
 }
@@ -404,7 +395,7 @@ abcResult_e abcListNode_c::diffKey(struct nodeKey_s *keyOnly)
 		case KEYTYPE_STRING_MEMBER:
 		case KEYTYPE_STRING_EXTERNAL:	// note: strcmp is a signed compare
 			if ((keyOnly->type != KEYTYPE_STRING_COPYIN) && (keyOnly->type != KEYTYPE_STRING_MEMBER) && (keyOnly->type !=KEYTYPE_STRING_EXTERNAL)) break;	// error
-			return (abcResult_e)strcmp(keyOnly->value.string,key.value.string);	// strcmp produces -1,0,1
+			return (abcResult_e)(strcmp(keyOnly->value.string,key.value.string)<<1);	// strcmp produces -1,0,1 => -2,0,2  which is ABC_LESS_THAN, ABC_EQUAL, ABC_GREATER THAN
 
 		case KEYTYPE_BIN_COPYIN:
 		case KEYTYPE_BIN_MEMBER:
@@ -415,10 +406,10 @@ abcResult_e abcListNode_c::diffKey(struct nodeKey_s *keyOnly)
 
 		case KEYTYPE_UNKNOWN:
 		default:
-			FATAL_ERROR_G(ABC_REASON_NODE_KEY_TYPE_INVALID);
+			ERROR(ABC_REASON_NODE_KEY_TYPE_INVALID);
 			return ABC_ERROR;
 	}
-	FATAL_ERROR_G(ABC_REASON_NODE_KEY_TYPE_MISMATCH);
+	ERROR(ABC_REASON_NODE_KEY_TYPE_MISMATCH);
 	return ABC_ERROR;
 }
 	
@@ -426,11 +417,7 @@ abcResult_e abcListNode_c::diffKey(struct nodeKey_s *keyOnly)
 // compare an other node's key to this node's key
 abcResult_e abcListNode_c::diffKey(class abcListNode_c *other)
 {
-	if (!other)
-	{
-		FATAL_ERROR_G(ABC_REASON_NODE_PARAM_IS_NULL);
-		return ABC_ERROR;
-	}
+	CHECK_ERROR(!other,ABC_REASON_NODE_PARAM_IS_NULL,ABC_ERROR);
 	return diffKey(&(other->key));
 }
 
@@ -501,7 +488,7 @@ abcResult_e     abcListNode_c::printBuff(char *pBuff, int pbuffSize, abcPrintSty
 	switch(printStyle)
 	{
 		case PRINT_STYLE_LIST_WITH_NODE_DETAILS:	// node detail
-			snprintf(pBuff,pbuffSize,"%s o:%p s:%lld => %s",abcNodeBuff,owner,sliceIndex,keyBuff);	// style zero
+			snprintf(pBuff,pbuffSize,"%s o:%p s:%d => %s",abcNodeBuff,owner,sliceIndex,keyBuff);	// style zero
 			break; 
 
 		case PRINT_STYLE_LIST_HEADER_SUMMARY: // list header
@@ -512,7 +499,7 @@ abcResult_e     abcListNode_c::printBuff(char *pBuff, int pbuffSize, abcPrintSty
 
 		case PRINT_STYLE_LIST_MEM_NAME_LIST:
 		case PRINT_STYLE_LIST_MEM_STATS_LIST:
-			snprintf(pBuff,pbuffSize,"%s s:%lld o:%p",abcNodeBuff,sliceIndex,owner);
+			snprintf(pBuff,pbuffSize,"%s s:%d o:%p",abcNodeBuff,sliceIndex,owner);
 			break;
 
 		case PRINT_STYLE_LIST_MMAP_LIST:
@@ -532,6 +519,7 @@ abcResult_e abcListNode_c::print(abcPrintStyle_e printStyle)
 {
 	char pBuff[256];
 	abcResult_e result = abcListNode_c::printBuff(pBuff,256,printStyle);
+	CHECK_ERROR(result,ABC_REASON_PRINTING_FAILED,result);
 	fprintf(stderr,"%s\n",pBuff);
 	return ABC_PASS;
 }
@@ -542,56 +530,47 @@ abcResult_e abcListNode_c::print(abcPrintStyle_e printStyle)
 */
 void abcListNode_c::setKeyString(const char *stringKey)
 {
-	TRACE_ENTRY("abcListNode_c");
 	key.type = KEYTYPE_STRING_COPYIN; 
+	key.size = 0;
 	key.value.string = strdup(stringKey);
-	TRACE_EXIT("abcListNode_c");
 }
 
 void abcListNode_c::setKeyStringMember(const char *stringKey)
 {
-	TRACE_ENTRY("abcListNode_c");
 	key.type = KEYTYPE_STRING_MEMBER; 
+	key.size = 0;
 	key.value.string = (char *)stringKey;
-	TRACE_EXIT("abcListNode_c");
 }
 
 void abcListNode_c::setKeyStringExternal(const char *stringKey)
 {
-	TRACE_ENTRY("abcListNode_c");
 	key.type = KEYTYPE_STRING_EXTERNAL; 
+	key.size = 0;
 	key.value.string = (char *)stringKey;
-	TRACE_EXIT("abcListNode_c");
 }
 
 
 
 void abcListNode_c::setKeyBinary(const uint8_t *mem,int size)
 {
-	TRACE_ENTRY("abcListNode_c");
 	key.type = KEYTYPE_BIN_COPYIN; 
 	key.value.string = (char *)malloc(size);
 	key.size  = size;
 	memcpy(key.value.string,mem,size);
-	TRACE_EXIT("abcListNode_c");
 }
 
 void abcListNode_c::setKeyBinaryMember(const uint8_t *mem,int size)
 {
-	TRACE_ENTRY("abcListNode_c");
 	key.type = KEYTYPE_BIN_MEMBER; 
 	key.value.string = (char *)mem;
 	key.size  = size;
-	TRACE_EXIT("abcListNode_c");
 }
 
 void abcListNode_c::setKeyBinaryExternal(const uint8_t *mem,int size)
 {
-	TRACE_ENTRY("abcListNode_c");
 	key.type = KEYTYPE_BIN_EXTERNAL; 
 	key.value.string = (char *)mem;
 	key.size  = size;
-	TRACE_EXIT("abcListNode_c");
 }
 
 
@@ -601,7 +580,6 @@ void abcListNode_c::setKeyBinaryExternal(const uint8_t *mem,int size)
 
 testNode_c::testNode_c(const char *setName)
 {
-	TRACE_CONSTRUCT("testNode_c");
 	if (setName != NULL)
 	{
 		name = strdup(setName);
@@ -614,7 +592,6 @@ testNode_c::testNode_c(const char *setName)
 }
 testNode_c::~testNode_c()
 {
-	TRACE_DESTROY("testNode_c");
 	if (name)
 	{
 		free(name);
@@ -629,31 +606,14 @@ testNode_c::~testNode_c()
 //
 abcResult_e testNode_c::copyOut(testNode_c *targetOfCopy)
 {
-	TRACE_ENTRY("testNode_c");
 
 	// safety check for object size change (something was added... which would imply clone method needs update
-    #define APPROVED_SIZE 72
-    #define SIZE_CHECK_OBJ testNode_c
-
-    if (sizeof(SIZE_CHECK_OBJ) - APPROVED_SIZE)
-    {
-        char errStr[256];
-        snprintf(errStr,256,"sizeof \"%s\" changed from %d to %d at %s:%d",STRINGIFY(SIZE_CHECK_OBJ),(int)APPROVED_SIZE,(int)sizeof(SIZE_CHECK_OBJ),__FILE__,__LINE__);
-        PROD_ERROR(errStr);
-        FATAL_ERROR_G(ABC_REASON_OBJECT_SIZE_WRONG);
-        return ABC_FAIL;
-    }
-    #undef APPROVED_SIZE
-    #undef SIZE_CHECK_OBJ
+	OBJ_SIZE_CHECK(testNode_c,72);
 
 	// copy parent and then our sepcifics
 
 	abcResult_e coResult = abcListNode_c::copyOut(targetOfCopy);
-	if (coResult != ABC_PASS)
-	{
-		FATAL_ERROR_G(ABC_REASON_NODE_CLONE_FAILED);
-		return coResult;
-	}
+	CHECK_ERROR(coResult,ABC_REASON_NODE_CLONE_FAILED,coResult);
 	if (name)
 	{
 		int sl = strlen(name);
@@ -665,7 +625,6 @@ abcResult_e testNode_c::copyOut(testNode_c *targetOfCopy)
 
 
 	// should be returning with the payload copied but the owner and the prev/next variables NULL
-	TRACE_EXIT("testNode_c");
 	return ABC_PASS;
 }
 
@@ -700,16 +659,15 @@ abcResult_e testNode_c::print(abcPrintStyle_e printStyle)
 {
 	char pBuff[256];
 	abcResult_e result = testNode_c::printBuff(pBuff,256,printStyle);
+	CHECK_ERROR(result,ABC_REASON_PRINTING_FAILED,result);
 	fprintf(stderr,"%s\n",pBuff);
 	return ABC_PASS;
 }
 
 abcListNode_c *testNode_c::clone()
 {
-	TRACE_ENTRY("testNode_c");
 	testNode_c *copy = new testNode_c();
 	testNode_c::copyOut(copy);
-	TRACE_EXIT("testNode_c");
 	return copy;
 }
 
@@ -722,7 +680,6 @@ abcResult_e testNode_c::diffNode(class abcListNode_c *other)
 
 void testNode_c::setName(const char *setName)
 {
-	TRACE_ENTRY("testNode_c");
 	if (name)
 	{
 		free(name);
@@ -735,7 +692,6 @@ void testNode_c::setName(const char *setName)
 }
 void testNode_c::setValue(const int setValue)
 {
-	TRACE_ENTRY("testNode_c");
 	value = setValue;
 }
 

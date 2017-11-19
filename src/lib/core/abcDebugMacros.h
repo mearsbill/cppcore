@@ -11,11 +11,6 @@
 
 /* useful and interesting #defines that control behavior in this file
 
-_USE_OBJECT_NAMES_
-_TRACE_METHOD_ENTRIES_
-_TRACE_METHOD_EXITS_
-_TRACE_CONSTRUCTION_
-_TRACE_DESTRUCTION_
 _TRACE_NONIMPL_
 
 _PRINT_DEBUG_ERROR_
@@ -27,92 +22,56 @@ _ABORT_ON_FATAL_ERROR_
 
 */
 
-// object names macros
-#ifdef _USE_OBJECT_NAMES_
-#define OBJ_NAME	"char *name"
-#else
-#define OBJ_NAME
-#endif
+// control param enum.   pick which type of printing we're talking about for the globalPrintEnabled function.
+typedef enum debugPrint_e	// param to globalPrintEnabled()
+{
+	DBGP_UNKNOWN=0,
+	DBGP_E,	// debugPrinting Errors		Typically on for production
+	DBGP_W,	// debugPrinting Warnings	Typically on for production
+	DBGP_P,	// debugPrinting Printing	Typically on for production
+	DBGP_D,	// debugPrinting Debugging	Typically OFF for production
+} debugPrint_e;
 
-// TRACE GENERIC 
+// control enum for globalAbortEnabled 
+typedef enum  debugAbort_e		// param to globalAbortEnabled()
+{
+	DBGA_UNKNOWN = 0,
+	DBGA_E,					// abort on error.
+} debugAbort_e;
+
+
+
+// TRACE 
 #define TRACE_GENERIC(obj,def) {fprintf(stderr,"%s::%s => %s at %s:%d\n",obj,__FUNCTION__,def,__FILE__,__LINE__);}
-
-// TRACE  METHODS
-#ifdef _TRACE_METHOD_ENTRIES_
-	#define TRACE_ENTRY(abc) TRACE_GENERIC(abc,"Entry")
-#else
-	#define TRACE_ENTRY(abc)
-#endif
-#ifdef _TRACE_METHOD_EXITS_
-	#define TRACE_EXIT(abc) TRACE_GENERIC(abc,"Exit")
-#else
-	#define TRACE_EXIT(abc)
-#endif
-
-// TRACE CONSTRUCTION/DESTRUCTION
-#ifdef _TRACE_CONSTRUCTION_
-	#define TRACE_CONSTRUCT(abc) TRACE_GENERIC(abc,"Construct")
-#else
-	#define TRACE_CONSTRUCT(abc)
-#endif
-#ifdef _TRACE_DESTRUCTION_
-	#define TRACE_DESTROY(abc) TRACE_GENERIC(abc,"Destroy")
-#else
-	#define TRACE_DESTROY(abc)
-#endif
-
-#ifdef _TRACE_NONIMPL_
-	#define TRACE_NONIMPL(abc) TRACE_GENERIC(abc,"Not Implemented")
-#else
-	#define TRACE_NONIMPL(abc)
-#endif
+#define TRACE_NONIMPL(abc) TRACE_GENERIC(abc,"Not Implemented")
 
 //
-// Error macro
+// Error macros (typically on in production)
 //
+#define CHECK_ERROR(cond,reason,failReturn) if (cond) { ERROR(reason); return failReturn;}
 
-// PRINT_GENERIC 
-#define PRINT_GENERIC(abc,def) {fprintf(stderr,"%s: in %s file: %s:%d...%s\n",abc,__FUNCTION__,__FILE__,__LINE__,def);}
-//#define PRINT_GENERIC(xyz,def) {fprintf(stderr,"%s: %s: %s  at %s:%d\n:",__FUNCTION__,xyz,def,__FILE__,__LINE__);}
+#define ERROR(reason) {setReason(reason); if (globalPrintEnabled(DBGP_E)) fprintf(stderr,"Error: Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);if (globalAbortEnabled(DBGA_E)){ fprintf(stderr,"Aborting...\n"); abort();}}
+#define ERROR_G(reason) { globalSetReason(reason); if (globalPrintEnabled(DBGP_E)) fprintf(stderr,"Error: Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);if (globalAbortEnabled(DBGA_E)){ fprintf(stderr,"Aborting...\n"); abort();}}
+#define ERROR_LTD(limit,reason) {setReason(reason);  static int pCount=0; pCount++; if ((pCount <= limit) && globalPrintEnabled(DBGP_E)) fprintf(stderr,"Error(%d): Reason=%s in method %s at %s:%d\n", pCount,STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__); \
+			if ((pCount >= limit) && globalAbortEnabled(DBGA_E)){ fprintf(stderr,"ErrorLimit Reached!!! Aborting... Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__); abort();}}
 
-// PROD_ERROR
-#define PROD_ERROR(abc) PRINT_GENERIC("ERROR",abc)
+// Warning Macros (typically on in production )
+#define WARNING(reason) { setReason(reason); if (globalPrintEnabled(DBGP_W))fprintf(stderr,"WARNING! Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);  }
+#define WARNING_G(reason) { globalSetReason(reason); if (globalPrintEnabled(DBGP_W))fprintf(stderr,"WARNING! Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);  }
+#define WARNING_LTD(unfilteredCount,filterRate,reason) { setReason(reason); static int pCount=0; pCount++; if ((pCount <= unfilteredCount) || ( (filterRate>0 && (!(pCount % filterRate)))))\
+		if (globalPrintEnabled(DBGP_W)) fprintf(stderr,"WARNING(%d)! Reason=%s in method %s at %s:%d\n", pCount,STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__); }
 
-//
-#ifdef _PRINT_DEBUG_ERROR_
-	#define DEBUG_ERROR(abc) PRINT_GENERIC("ERROR",abc)
-#else
-	#define DEBUG_ERROR(abc) 
-#endif
+// Printing Macros (typically for production .... typically on in production)
+#define PRINT(x...)		{if (globalPrintEnabled(DBGP_P)) fprintf(stderr,x); }
+#define PRINT_LTD(unfilteredCount,filterRate,x...) { static int pCount=0; pCount++; if ((pCount <= unfilteredCount) || ( (filterRate>0 && (!(pCount % filterRate))))) if (globalPrintEnabled(DBGP_P)) fprintf(stderr,x); }
 
-//DEBUG_A
-#ifdef _PRINT_DEBUG_A_
-//	#define DEBUG_A(x...) {char msg[256]; snprintf(msg,256,abc,..); fprintf(stderr,msg);}
-	#define DEBUG_A(x...) {fprintf(stderr,x); }
-#else
-	#define DEBUG_A(abc) 
-#endif
+// Debugging Macros (typically for debugging... off in production)
+#define DEBUG(x...)		if (globalPrintEnabled(DBGP_D)) { char tmpLine[256]; snprintf(tmpLine,256,x); fprintf(stderr,"%s in method %s at %s:%d\n",tmpLine,__FUNCTION__,__FILE__,__LINE__); }
+#define DEBUG_LTD(unfilteredCount,filterRate,x...) { static int pCount=0; pCount++; if ((pCount <= unfilteredCount) || ( (filterRate>0 && (!(pCount % filterRate))))) DEBUG(x);
 
-//DEBUG_B
-#ifdef _PRINT_DEBUG_B_
-	#define DEBUG_B(x...) {fprintf(stderr,x); }
-#else
-	#define DEBUG_B(abc) 
-#endif
-
-
-// FATAL_ERROR
-#define FATAL_ERROR(reason) { setErrorReason(reason); if (_ABORT_ON_FATAL_ERROR_)  { fprintf(stderr,"Fatal Error... aborting.  Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);abort(); } \
-	else {if (_PRINT_FATAL_ERROR_)fprintf(stderr,"Fatal Error... not aborting.  Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);  }}
-
-#define FATAL_ERROR_G(reason) { abcGlobalSetErrorReason(reason); if (_ABORT_ON_FATAL_ERROR_) { fprintf(stderr,"Fatal Error... aborting.  Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);abort(); } \
-	else {if (_PRINT_FATAL_ERROR_)fprintf(stderr,"Fatal Error... not aborting.  Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);  }}
-
-// WARNING
-#define WARNING(reason) { setErrorReason(reason); if (_PRINT_WARNING_)fprintf(stderr,"WARNING! Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);  }
-#define WARNING_G(reason) { abcGlobalSetErrorReason(reason); if (_PRINT_WARNING_)fprintf(stderr,"WARNING! Reason=%s in method %s at %s:%d\n", STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__);  }
-
-#define PERROR_LTD(pStart,filterRate,reason) { static int pCount=0; pCount++; if ((pCount <= pStart) || ( (filterRate>0 && (!(pCount % filterRate))))) fprintf(stderr,"WARNING(%d)! Reason=%s in method %s at %s:%d\n", pCount,STRINGIFY(reason),__FUNCTION__,__FILE__,__LINE__); }
+#define LOG_TEST(testName,result) fprintf(stderr,"Test %s: %s\n",testName,passFailAsStr(result))
+#define TTY_CHK_TEST(testNoStr,inStr,PassChar,failureSum) {if (strlen(inStr)==1) inStr[0]=PassChar; int testPassedTmp = (toupper(inStr[0]) == PassChar ); LOG_TEST(testNoStr,testPassedTmp); failureSum += !testPassedTmp;}
+#define CHECK_TEST(testNoStr,passCondition,failureSum) {int testPassedTmp = (passCondition); LOG_TEST(testNoStr,testPassedTmp); failureSum += !testPassedTmp;}
 
 #endif //__ABC_DEBUG_MACROS_H__
  // EOF abcDebugMacros.h

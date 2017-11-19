@@ -78,7 +78,7 @@ abcResult_e	abcMemNameNode_c::diffNode(class abcListNode_c *other)
 
 //
 // Instance Name
-//    fileName:fileLine:function"
+//    fileName:fileLine[function]"
 //
 // Object Name
 // for raw	  = "R:storageSize"
@@ -88,7 +88,7 @@ abcResult_e	abcMemNameNode_c::diffNode(class abcListNode_c *other)
 char *abcMemNameNode_c::buildLocationString(const char *fileName, const int fileLine, const char *function)
 {
 	char buildStr[256];
-	snprintf(buildStr,256,"%s:%d %s",fileName,fileLine,function);
+	snprintf(buildStr,256,"%s@%s:%d",function,fileName,fileLine);
 	return strdup(buildStr);
 }
 char	*abcMemNameNode_c::buildObjectClassString(const char *className)
@@ -100,7 +100,7 @@ char	*abcMemNameNode_c::buildObjectClassString(const char *className)
 char	*abcMemNameNode_c::buildObjectStructString(const char *structName)
 {
 	char buildStr[256];
-	snprintf(buildStr,256,"S:%s",structName);
+	snprintf(buildStr,256,(char *)"S:%s",structName);
 	return strdup(buildStr);
 }
 char	*abcMemNameNode_c::buildObjectRawString(const int size)
@@ -112,7 +112,7 @@ char	*abcMemNameNode_c::buildObjectRawString(const int size)
 uint64_t	abcMemNameNode_c::calcNameHash(const char *string)
 {
 	int strLen = strlen(string);
-	return abcGlobalCore->computeCrc64((uint8_t *)string,strLen);
+	return globalCore->computeCrc64((uint8_t *)string,strLen);
 }
 int64_t	abcMemNameNode_c::incrUseCount()
 {
@@ -308,19 +308,34 @@ abcMemMon_c::abcMemMon_c(const char *setName)
 		name = strdup(setName);
 	}
 	mmapList = new abcHashList_c("mmapList");
-	mmapList->initProtected(1000,3,300);
-	mmapList->enableLocking();
-	mmapList = new abcHashList_c("delmapList");
-	mmapList->initProtected(1000,3,300);
-	mmapList->enableLocking();
-	nameList = new abcHashList_c("nameList");
-	nameList->initProtected(2000,6,300);
-	nameList->enableLocking();
-	statsList = new abcHashList_c("statsList");;
-	statsList->initProtected(400,6,200);
-	statsList->enableLocking();
+	abcResult_e res = mmapList->initProtected(1000,3,300);
+	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
 
-	errorReason = ABC_REASON_NONE;
+	res = mmapList->enableLocking();
+	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
+
+	delmapList = new abcHashList_c("delmapList");
+	res = delmapList->initProtected(1000,3,300);
+	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
+
+	res = delmapList->enableLocking();
+	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
+
+	nameList = new abcHashList_c("nameList");
+	res = nameList->initProtected(2000,6,300);
+	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
+
+	res = nameList->enableLocking();
+	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
+
+	statsList = new abcHashList_c("statsList");;
+	res =statsList->initProtected(400,6,200);
+	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
+
+	res = statsList->enableLocking();
+	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
+
+	reason = ABC_REASON_NONE;
 
 	// zero our incremental stats
 	netBytesInUse = 0;
@@ -352,6 +367,11 @@ abcMemMon_c::~abcMemMon_c()
 		delete nameList;
 		nameList = NULL;
 	}
+	if (delmapList)
+	{
+		delete delmapList;
+		delmapList = NULL;
+	}
 	if (mmapList)
 	{
 		delete mmapList;
@@ -359,13 +379,17 @@ abcMemMon_c::~abcMemMon_c()
 	}
 }
 
-void abcMemMon_c::setErrorReason(abcReason_e reason)
+void abcMemMon_c::resetReason()
 {
-	errorReason = reason;
+	reason = ABC_REASON_NONE;
 }
-abcReason_e abcMemMon_c::getErrorReason()
+void abcMemMon_c::setReason(abcReason_e setReason)
 {
-	return errorReason;
+	reason = setReason;
+}
+abcReason_e abcMemMon_c::getReason()
+{
+	return reason;
 }
 
 void *abcMemMon_c::interceptClassNew(void *objAddr, char *className, int objectSize, char *fileName, int fileLine, char *fileFunction)
@@ -395,12 +419,8 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	abcMmapNode_c *mmapNode;
 
 	///////////////////////////========================
-	abcResult_e wlResult = mmapList->writeLock();
-	if (wlResult != ABC_PASS)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILED);
-		return NULL;
-	}
+	abcResult_e res = mmapList->writeLock();
+	CHECK_ERROR(res,ABC_REASON_LIST_LOCK_FAILED,NULL);
 
 #ifdef ABC_MEM_STRICT_CHECKING
 	// build a search key from the memory address
@@ -408,20 +428,17 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	// Caution... we can malloc and free the same address over and over again !
 	nodeKey_setPtr(&searchKey,objAddr);
 
-	mmapNode = (abcMmapNode_c *)mmapList->findFirst(&searchKey);
+	mmapNode = (abcMmapNode_c *)mmapList->findFirst(&searchKey,1,&res);
+	if (res)
+	{
+		ERROR(ABC_REASON_LIST_FIND_FAILED);
+		 mmapList->writeRelease();
+		 return NULL;
+	}
 	if (mmapNode)
 	{
 		// serious error to find the address we're mallocing on our list already
-		FATAL_ERROR(ABC_REASON_MMAP_DUPLICATE_ADDR_INVALID);
-		mmapList->writeRelease();
-		return NULL;
-	}
-	// return is null... but was there an err
-	abcReason_e reason = mmapList->getErrorReason();
-	if (reason != ABC_REASON_NONE)
-	{
-		// move the error reason to our object
-		mmapList->setErrorReason(ABC_REASON_UNRECOVERABLE_FAILURE);
+		ERROR(ABC_REASON_MMAP_DUPLICATE_ADDR_INVALID);
 		mmapList->writeRelease();
 		return NULL;
 	}
@@ -430,10 +447,9 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	// now we've confirmed no dup, lets make the node
 	mmapNode = new abcMmapNode_c(objAddr);
 	abcResult_e result = mmapList->add(mmapNode);
-	///////////////////////////========================
 	if (result != ABC_PASS)
 	{
-		FATAL_ERROR(ABC_REASON_MMAP_ADD_FAILED);
+		ERROR(ABC_REASON_MMAP_ADD_FAILED);
 		mmapList->writeRelease();
 		return NULL;
 	}
@@ -446,8 +462,21 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 
 	//////////////////////////////////////////////////
 	// write lock stats list for this critical section
-	statsList->writeLock();
-	abcMemStatsNode_c *statsNode = (abcMemStatsNode_c *)statsList->findFirst(&searchKey);
+	res = statsList->writeLock();
+	if (res)
+	{
+		ERROR(ABC_REASON_LIST_LOCK_FAILED);
+		mmapList->writeRelease();
+		return NULL;
+	}
+
+	abcMemStatsNode_c *statsNode = (abcMemStatsNode_c *)statsList->findFirst(&searchKey,1,&res);
+	if (res)
+	{
+		ERROR(ABC_REASON_LIST_FIND_FAILED);
+		mmapList->writeRelease();
+		return NULL;
+	}
 	if (!statsNode)
 	{
 		// we didn't find it, so we'll build it here
@@ -472,7 +501,14 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	uint64_t locHash = abcMemNameNode_c::calcNameHash(newLoc);
 	nodeKey_setInt(&searchKey,locHash);
 
-	nameList->writeLock();	// lock the list for all access
+	res = nameList->writeLock();	// lock the list for all access
+	if (res)
+	{
+		ERROR(ABC_REASON_LIST_FIND_FAILED);
+		nameList->writeRelease();
+		mmapList->writeRelease();
+		return NULL;
+	}
 	abcMemNameNode_c *nameNode = (abcMemNameNode_c *)nameList->findFirst(&searchKey);
 	if (nameNode)
 	{
@@ -520,14 +556,14 @@ void abcMemMon_c::interceptDelete(void *objAddr, char *fileName, int fileLine, c
 	if (!mmapNode)
 	{
 		// serious error to delete something that isn't there
-		FATAL_ERROR(ABC_REASON_MMAP_DEL_FAILED);
+		ERROR(ABC_REASON_MMAP_DEL_FAILED);
 		mmapList->writeRelease();
 		return;
 	}
 	// check for double delete
 	if (mmapNode->locDelPtr)
 	{
-		FATAL_ERROR(ABC_REASON_MMAP_ALREADY_DELETED);
+		ERROR(ABC_REASON_MMAP_ALREADY_DELETED);
 		mmapList->writeRelease();
 		return;
 	}
@@ -540,7 +576,7 @@ void abcMemMon_c::interceptDelete(void *objAddr, char *fileName, int fileLine, c
 	abcMemStatsNode_c *statsNode = mmapNode->getStatsNode();
 	if (!statsNode)
 	{
-		FATAL_ERROR(ABC_REASON_MMAP_STATS_NODE_MISSING);
+		ERROR(ABC_REASON_MMAP_STATS_NODE_MISSING);
 		//statsList->writeRelease(); 
 		mmapList->writeRelease(); 
 		return;
@@ -585,13 +621,13 @@ void abcMemMon_c::interceptDelete(void *objAddr, char *fileName, int fileLine, c
 	abcResult_e res = mmapList->remove(mmapNode);
 	if (res)
 	{
-		FATAL_ERROR(ABC_REASON_MMAP_DEL_FAILED);
+		ERROR(ABC_REASON_MMAP_DEL_FAILED);
 		return;
 	}
 	res = mmapList->writeRelease();
 	if (res)
 	{
-		FATAL_ERROR(ABC_REASON_MMAP_LOCK_FAILED);
+		ERROR(ABC_REASON_MMAP_LOCK_FAILED);
 		return;
 	}
 
@@ -599,23 +635,19 @@ void abcMemMon_c::interceptDelete(void *objAddr, char *fileName, int fileLine, c
 	res = delmapList->writeLock();
 	if (res)
 	{
-		FATAL_ERROR(ABC_REASON_MMAP_LOCK_FAILED);
+		ERROR(ABC_REASON_MMAP_LOCK_FAILED);
 		return;
 	}
 	res = mmapList->add(mmapNode);
 	if (res)
 	{
-		FATAL_ERROR(ABC_REASON_MMAP_ADD_FAILED);
+		ERROR(ABC_REASON_MMAP_ADD_FAILED);
 		return;
 	}
 
 	// writeRelease the delmapList 
 	res = delmapList->writeRelease();
-	if (res)
-	{
-		FATAL_ERROR(ABC_REASON_MMAP_LOCK_FAILED);
-		return;
-	}
+	CHECK_ERROR(res,ABC_REASON_MMAP_LOCK_FAILED,);
 
 	// update incremental stats
 	totalBytesFreed += objectSize;
@@ -686,9 +718,19 @@ void abcMemMon_c::printMemoryStats()
 
 void abcMemMon_c::shutdown(int shutdownVal)
 {
+	char netBytes[32]; abcStrings_c::snprintf_eng(netBytes,32,(char *)"%5.1f",(double)netBytesInUse,(char *)"Bytes");
+	char maxBytes[32]; abcStrings_c::snprintf_eng(maxBytes,32,(char *)"%5.1f",(double)maxMemoryUsed,(char *)"Bytes");
+	char totBytes[32]; abcStrings_c::snprintf_eng(totBytes,32,(char *)"%5.1f",(double)totalBytesMalloced,(char *)"Bytes");
+	char freedBytes[32]; abcStrings_c::snprintf_eng(freedBytes,32,(char *)"%5.1f",(double)totalBytesFreed,(char *)"Bytes");
+	char netMallocs[32]; abcStrings_c::snprintf_eng(netMallocs,32,(char *)"%5.1f",(double)netMallocsInUse,(char *)"Mallocs");
+	char maxMallocs[32]; abcStrings_c::snprintf_eng(maxMallocs,32,(char *)"%5.1f",(double)maxMallocsUsed,(char *)"Mallocs");
+	char totMallocs[32]; abcStrings_c::snprintf_eng(totMallocs,32,(char *)"%5.1f",(double)totalMallocCount,(char *)"Mallocs");
+	char totFrees[32]; abcStrings_c::snprintf_eng(totFrees,32,(char *)"%5.1f",(double)totalFreeCount,(char *)"Mallocs");
+	fprintf(stderr,"API Memory Leak Report:  Outstanding Memory: %s  Outstanding Mallocs: %s\n ",netBytes, netMallocs);
+	fprintf(stderr,"Other Stats:  MaxMalloced:%s TotalMallocs:%s TotalFrees:%s\n",maxBytes,totBytes,freedBytes);
+	fprintf(stderr,"Other Stats:  MaxMalloced:%s TotalMallocs:%s TotalFrees:%s\n",maxMallocs,totMallocs,totFrees);
 	abcMemMon_c::printMemoryStats();
 }
 
 ////////////////////////////
 // EOF abcMemory.cpp
-

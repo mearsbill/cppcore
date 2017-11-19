@@ -33,6 +33,10 @@ extern "C"
 #define STRINGIFY2(X) #X
 #define STRINGIFY(X) STRINGIFY2(X)
 
+// for size checking an object
+#define OBJ_SIZE_CHECK(obj,size) if (sizeof(obj) - (size)) { char errStr[128]; snprintf(errStr,128,"sizeof \"%s\" changed from %d to %d at %s:%d", \
+   STRINGIFY(obj),(int)size,(int)sizeof(obj),__FILE__,__LINE__); PRINT(errStr);  ERROR_G(ABC_REASON_OBJECT_SIZE_WRONG); return ABC_FAIL;}
+
 
 #endif //__ABC_BASE_H__
 // EOF abcBase.h

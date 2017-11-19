@@ -7,6 +7,7 @@
 //
 
 #include "abcThreads.h"	
+#include "abcCore.h"
 
 // this c-like function is called by pthread_create to access our main
 // this is a virtual overload, so we pass "this" in and call main from here
@@ -66,11 +67,7 @@ abcThread_c::abcThread_c(const char *setName )
 		name = strdup(setName);
 	}
 	abcResult_e res = initLocks();
-	if (res != ABC_PASS)
-	{
-		FATAL_ERROR(ABC_REASON_MUTEX_INIT_FAILED);
-		return;
-	}
+	CHECK_ERROR(res != ABC_PASS,ABC_REASON_MUTEX_INIT_FAILED,);
 	threadState = ABC_THREADSTATE_UNKNOWN;
 	waitingForStateChange = FALSE;
 
@@ -88,12 +85,7 @@ abcThread_c::~abcThread_c()
 
 	// destoy thread attribute once thread is confirmed stopped
 	int res = pthread_attr_destroy(&threadAttr);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_THREAD_INIT_FAILED);
-	}
-
-
+	CHECK_ERROR(res,ABC_REASON_THREAD_INIT_FAILED,);
 } // end abcThread_c::~abcThread_c()
 
 char *abcThread_c::getObjType()
@@ -142,25 +134,17 @@ abcResult_e abcThread_c::initLocks()
 	pthread_mutexattr_t attrs;
 	pthread_mutexattr_init(&attrs);
 	pthread_mutexattr_settype(&attrs, PTHREAD_MUTEX_TYPE);
+
 	int res = pthread_mutex_init(&mutex,&attrs);
-	if (res)
-	{
-		FATAL_ERROR(ABC_REASON_MUTEX_INIT_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_MUTEX_INIT_FAILED,ABC_FAIL);
+
 	// now init the condition variables
 	res = pthread_cond_init(&condVar,NULL);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_CONDVAR_INIT_FAILED,ABC_FAIL);
+
 	res = pthread_cond_init(&wfscCondVar,NULL);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_CONDVAR_INIT_FAILED,ABC_FAIL);
+
 	return ABC_PASS;
 
 } // end abcThread_c::initLocks()
@@ -168,21 +152,15 @@ abcResult_e abcThread_c::initLocks()
 abcResult_e abcThread_c::lock()
 {
 	int res = pthread_mutex_lock(&mutex);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_THREAD_LOCK_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_THREAD_LOCK_FAILED,ABC_FAIL);
+
 	return ABC_PASS;
 } // end abcThread_c::lock()
 abcResult_e     abcThread_c::unlock()
 {
 	int res = pthread_mutex_unlock(&mutex);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_THREAD_UNLOCK_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_THREAD_UNLOCK_FAILED,ABC_FAIL);
+
 	return ABC_PASS;
 } // end abcThread_c::lock()
 
@@ -193,11 +171,7 @@ abcThreadState_e abcThread_c::getThreadState()
 abcThreadState_e abcThread_c::lock_N_getState()
 {
 	abcResult_e res = lock();
-	if (res)
-	{
-		FATAL_ERROR(ABC_REASON_THREAD_LOCK_FAILED);
-		return ABC_THREADSTATE_ERROR;
-	}
+	CHECK_ERROR(res,ABC_REASON_THREAD_LOCK_FAILED,ABC_THREADSTATE_ERROR);
 	return threadState;
 } // end abcThread_c::lock_N_getState()
 //
@@ -210,7 +184,7 @@ abcResult_e	abcThread_c::setState_N_Unlock(abcThreadState_e setState)
 		int iRes = pthread_cond_broadcast(&wfscCondVar);
 		if (iRes)
 		{
-			FATAL_ERROR(ABC_REASON_CONDVAR_BROADCAST_FAILED);
+			ERROR(ABC_REASON_CONDVAR_BROADCAST_FAILED);
 			unlock();
 			return ABC_FAIL;
 		}
@@ -221,23 +195,16 @@ abcResult_e	abcThread_c::setState_N_Unlock(abcThreadState_e setState)
 abcResult_e	abcThread_c::setState(abcThreadState_e setState)
 {
 	abcResult_e res = lock();
-	if (res)
-	{
-		FATAL_ERROR(ABC_REASON_THREAD_LOCK_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_THREAD_LOCK_FAILED,res);
 	return setState_N_Unlock(setState);
+
 } // end abcThread_c::setState(abcThreadState_e setState)
 //
 abcResult_e	abcThread_c::test_N_Set(abcThreadState_e confirmState, abcThreadState_e setState)
 {
 	abcResult_e res;
 	res = lock();
-	if (!res)
-	{
-		FATAL_ERROR(ABC_REASON_THREAD_LOCK_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_THREAD_LOCK_FAILED,res);
 	if (threadState != confirmState)
 	{
 		unlock();
@@ -250,23 +217,22 @@ abcResult_e	abcThread_c::test_N_Set(abcThreadState_e confirmState, abcThreadStat
 		int iRes = pthread_cond_broadcast(&wfscCondVar);
 		if (iRes)
 		{
-			FATAL_ERROR(ABC_REASON_CONDVAR_BROADCAST_FAILED);
+			ERROR(ABC_REASON_CONDVAR_BROADCAST_FAILED);
 			unlock();
 			return ABC_FAIL;
 		}
 	}
 	res = unlock();
-	if (!res)
-	{
-		FATAL_ERROR(ABC_REASON_THREAD_LOCK_FAILED);
-	}
+	CHECK_ERROR(res,ABC_REASON_THREAD_UNLOCK_FAILED,res);
 	return res;
 } // end abcThread_c::testNSet(abcThreadState_e confirmState, abcThreadState_e setState)
 //
 //  Wait for threadState to become desiredState.  Return after wait time with status as ABC_RETRY unless a failure occurs
 abcResult_e	abcThread_c::waitForState(abcThreadState_e desiredState, int millisecondsWait)	// zero means no wait
 {
-	lock();
+	abcResult_e res = lock();
+	CHECK_ERROR(res,ABC_REASON_THREAD_LOCK_FAILED,ABC_FAIL);
+
 	if (threadState != desiredState)
 	{
 		waitingForStateChange = TRUE;
@@ -328,7 +294,7 @@ abcResult_e abcThread_c::configure()
 	if ((myThreadState != ABC_THREADSTATE_UNCONFIGURED) && (myThreadState != ABC_THREADSTATE_UNKNOWN))
 	{
 		unlock();
-		FATAL_ERROR(ABC_REASON_THREAD_INIT_FAILED);
+		ERROR(ABC_REASON_THREAD_INIT_FAILED);
 		return ABC_FAIL;
 	}
 	// set up our thread defaults
@@ -336,21 +302,21 @@ abcResult_e abcThread_c::configure()
 	if (res != 0)
 	{
 		unlock();
-		FATAL_ERROR(ABC_REASON_THREAD_ATTR_INIT_FAILED)
+		ERROR(ABC_REASON_THREAD_ATTR_INIT_FAILED)
 		return ABC_FAIL;
 	}
 	res = pthread_attr_setdetachstate(&threadAttr, PTHREAD_CREATE_JOINABLE);
 	if (res != 0)
 	{
 		unlock();
-		FATAL_ERROR(ABC_REASON_THREAD_ATTR_INIT_FAILED)
+		ERROR(ABC_REASON_THREAD_ATTR_INIT_FAILED)
 		return ABC_FAIL;
 	}
 	res = setpriority(PRIO_PROCESS,0,ABC_BASE_PRIORITY);
 	if (res != 0)
 	{
 		unlock();
-		FATAL_ERROR(ABC_REASON_THREAD_SETPRIORITY_FAILED);
+		ERROR(ABC_REASON_THREAD_SETPRIORITY_FAILED);
 		return ABC_FAIL;
 	}
 	//
@@ -367,7 +333,7 @@ abcResult_e abcThread_c::start()
 	abcThreadState_e myThreadState = lock_N_getState(); // note: going locked !!!
 	if (myThreadState != ABC_THREADSTATE_CONFIGURED)
 	{
-		FATAL_ERROR(ABC_REASON_THREAD_NOT_CONFIGURED);
+		ERROR(ABC_REASON_THREAD_NOT_CONFIGURED);
 		unlock();
 		return ABC_FAIL;
 	}
@@ -376,7 +342,7 @@ abcResult_e abcThread_c::start()
 	int res = pthread_create(&threadId,&threadAttr,&abcVirtualThreadMain,this);
 	if (res != 0)
 	{
-		FATAL_ERROR(ABC_REASON_THREAD_INIT_FAILED);
+		ERROR(ABC_REASON_THREAD_INIT_FAILED);
 		unlock();
 		return ABC_FAIL;
 	}
@@ -389,7 +355,7 @@ abcResult_e abcThread_c::mainStartup()
 	abcThreadState_e myThreadState = lock_N_getState(); // note: going locked !!!
 	if (myThreadState != ABC_THREADSTATE_STARTING)
 	{
-		FATAL_ERROR(ABC_REASON_THREAD_NOT_CONFIGURED);
+		ERROR(ABC_REASON_THREAD_NOT_CONFIGURED);
 		unlock();
 		return ABC_FAIL;
 	}
@@ -407,13 +373,13 @@ abcResult_e abcThread_c::mainStartup()
 	int res = pthread_sigmask (SIG_BLOCK, &sigMask, NULL);
 	if (res != 0)
 	{
-		FATAL_ERROR(ABC_REASON_THREAD_SETSIGNALMASK_FAILED);
+		ERROR(ABC_REASON_THREAD_SETSIGNALMASK_FAILED);
 		unlock();
 		return ABC_FAIL;
 	}
 	// get the lightweight processId.
-	DEBUG_A("No syscall on Darwin\n");
-	//lwpTid = syscall(SYS_gettid);
+	lwpTid = 0;
+	DEBUG("No syscall on Darwin... need \"lwpTid = syscall(SYS_gettid)\" here\n");
 
 	abcResult_e result = setState_N_Unlock(ABC_THREADSTATE_RUNNING);
 	return result;
@@ -424,7 +390,7 @@ abcResult_e abcThread_c::mainShutdown()
 	abcThreadState_e myThreadState = lock_N_getState(); // note: going locked !!!
 	if (myThreadState != ABC_THREADSTATE_STOPPING)
 	{
-		FATAL_ERROR(ABC_REASON_THREAD_EXPECTED_STOPPING_STATE);
+		ERROR(ABC_REASON_THREAD_EXPECTED_STOPPING_STATE);
 		unlock();
 		return ABC_FAIL;
 	}
@@ -434,7 +400,7 @@ abcResult_e abcThread_c::mainShutdown()
 
 abcResult_e abcThread_c::stop()
 {
-
+	TRACE_NONIMPL("abcThread_c");
 	return ABC_PASS;
 } // end abcThread_c::stop()
 
@@ -478,10 +444,7 @@ void abcThread_c::main()
 	//fprintf(stderr,"Got to here:%s %s:%d\n",__FUNCTION__,__FILE__,__LINE__);
 	// 
 	abcResult_e res = mainStartup();	// always call... sets critical state information
-	if (res != ABC_PASS)
-	{
-		FATAL_ERROR(ABC_REASON_THREAD_INIT_FAILED);
-	}
+	CHECK_ERROR(res,ABC_REASON_THREAD_INIT_FAILED,);
 	int loopCount = 10;
 	while (isRunning())
 	{

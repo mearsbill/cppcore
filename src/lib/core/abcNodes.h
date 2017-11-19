@@ -81,7 +81,7 @@ typedef struct nodeKey_s
 
 // methods to init the nodeKey_s structure
 // there can't be a _setXXXMember for thise style init.L
-nodeKey_s *nodeKey_create();
+void nodeKey_init(nodeKey_s *This);
 void nodeKey_destroy(nodeKey_s *This);
 void nodeKey_setInt(nodeKey_s *This, const int64_t intKey);
 void nodeKey_setDbl(nodeKey_s *This, const double dbltKey);
@@ -101,25 +101,31 @@ class  abcListNode_c : public abcNode_c
 
 	nodeKey_s			key;		// the search key
 	class abcList_c		*owner;
-	int64_t				sliceIndex;		// only used for slice, hash lists
+	int32_t				sliceIndex;		// used for slice, hash lists
+	abcReason_e			reason;
 
   public:
 	abcListNode_c();	// method in cpp file
 	virtual ~abcListNode_c();	// method in cpp file
 
+	void				resetReason();
+	void				setReason(abcReason_e setReason);
+	abcReason_e			getReason();
+
 	virtual char		*getObjType();	// the class name
 	virtual char		*getObjName();	// the instance name when available
+	char *getKeyString() {return key.value.string; }
 	virtual abcResult_e print(abcPrintStyle_e printStyle=PRINT_STYLE_LIST_WITH_NODE_DETAILS); 
 	abcResult_e			printBuff(char *pBuff, int pbuffSize, abcPrintStyle_e printStyle); //nonVirtual prinfbuff for this level of the object hiearchy
 	abcResult_e			keyPrintBuff(char *pBuff,int pbuffSize);
-	uint64_t 			calcKeyHash();								// for this node
-	uint64_t 			calcKeyHash(struct nodeKey_s *keyOnly);		// actually a static method but not coded so
+	uint64_t 			calcKeyHash(abcResult_e *resultOut=NULL);								// for this node
+	uint64_t 			calcKeyHash(struct nodeKey_s *keyOnly,abcResult_e *resultOut=NULL);		// actually a static method but not coded so
 
-	// object general behavior
+	// object general behavior.   Note cloning will use the abcMemMon macros.
 	virtual abcListNode_c *clone();
 	abcResult_e copyOut(abcListNode_c *targetOfCopy);
 
-	virtual abcResult_e diffKey(class abcListNode_c *other);	// compare just the key
+	virtual abcResult_e diffKey(class abcListNode_c *other);	// compare just the key	( other on left.)
 	virtual abcResult_e diffKey(struct nodeKey_s *key);			// compare to a  key
 	virtual abcResult_e diffNode(class abcListNode_c *other);	// compare entire node
 

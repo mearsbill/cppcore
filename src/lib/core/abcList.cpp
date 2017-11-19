@@ -15,15 +15,6 @@
 // changes here don't cause a massive recompile.
 #define _LIST_RIGOROUS_TESTING_
 
-// There are global defines, but placed here to 
-// allow quick checking of stuff without a massive recompile
-#define _TRACE_METHOD_ENTRIES_
-#define _TRACE_METHOD_EXITS_
-#define _TRACE_CONSTRUCTION_
-#define _TRACE_DESTRUCTION_
-#define _TRACE_NONIMPL_
-#define _PRINT_DEBUG_ERROR_
-#define _PRINT_DEBUG_A_
 
 #include "abcDebugMacros.h"
 #include "abcCore.h"
@@ -32,13 +23,11 @@ abcList_c::abcList_c(const char *setName)
 {
 	name = setName ? strdup(setName) : NULL; 
 
-	//TRACE_CONSTRUCT("abcList_c");
 	headNode = NULL;
 	tailNode = NULL;
 	currNode = NULL;
 
 	nodeCount=0;
-	errorReason = ABC_REASON_NONE;
 	isSorted = FALSE;
 
 	// init the locks, etc
@@ -49,14 +38,12 @@ abcList_c::abcList_c(const char *setName)
 }
 abcList_c::~abcList_c()
 {
-	TRACE_DESTROY("abcList_c");
 	empty();	// this will delete all listNodes and their contents
 	if (name)
 	{
 		free(name);
 		name = NULL;
 	}
-	TRACE_EXIT("abcList_c");
 }
 
 /////////////////////////////////////////////////////////////////
@@ -69,32 +56,26 @@ abcList_c::~abcList_c()
 //
 abcResult_e	abcList_c::enableLocking()
 {
+	int res;
+
 	// init the lock mutex
 	pthread_mutexattr_t attrs;
 	pthread_mutexattr_init(&attrs);
 	pthread_mutexattr_settype(&attrs, PTHREAD_MUTEX_TYPE);
-	int res = pthread_mutex_init(&mutex,&attrs);
-	if (res)
-	{
-		FATAL_ERROR(ABC_REASON_MUTEX_INIT_FAILED);
-		return ABC_FAIL;
-	}
+	res = pthread_mutex_init(&mutex,&attrs);
+	CHECK_ERROR(res,ABC_REASON_MUTEX_INIT_FAILED,ABC_FAIL);
+
 	// now init the condition variables for read and write waiting
 	res = pthread_cond_init(&readerCondVar,NULL);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_CONDVAR_INIT_FAILED,ABC_FAIL);
+
 	res = pthread_cond_init(&writerCondVar,NULL);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_CONDVAR_INIT_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_CONDVAR_INIT_FAILED,ABC_FAIL);
+
 	lockingEnabled=TRUE;
 	return ABC_PASS;
 } // end abcList_c::enableLocking()
+//
 // disable locking 
 abcResult_e	abcList_c::disableLocking()
 {
@@ -105,54 +86,32 @@ abcResult_e	abcList_c::disableLocking()
 	}
 	lockingEnabled=FALSE;
 	int res = pthread_cond_destroy(&readerCondVar);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_MUTEX_DESTROY_FAILED,ABC_FAIL);
+
 	res = pthread_cond_destroy(&writerCondVar);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_MUTEX_DESTROY_FAILED,ABC_FAIL);
+
 	res = pthread_mutex_destroy(&mutex);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_MUTEX_DESTROY_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_MUTEX_DESTROY_FAILED,ABC_FAIL);
+
 	return ABC_PASS;
 } // end abcList_c::disableLocking()
 //
 abcResult_e     abcList_c::lock()
 {
-	if (!lockingEnabled)
-	{
-		FATAL_ERROR(ABC_REASON_MUTEX_NOT_INITIALIZED)
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(!lockingEnabled,ABC_REASON_MUTEX_NOT_INITIALIZED,ABC_FAIL);
+
 	int res = pthread_mutex_lock(&mutex);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_LIST_LOCK_FAILED,ABC_FAIL);
 	return ABC_PASS;
 } // end abcList_c::lock()
+//
 abcResult_e     abcList_c::unlock()
 {
-	if (!lockingEnabled)
-	{
-		FATAL_ERROR(ABC_REASON_MUTEX_NOT_INITIALIZED)
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(!lockingEnabled,ABC_REASON_MUTEX_NOT_INITIALIZED,ABC_FAIL);
+
 	int res = pthread_mutex_unlock(&mutex);
-	if (res != 0)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_UNLOCK_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(res,ABC_REASON_LIST_UNLOCK_FAILED,ABC_FAIL);
 	return ABC_PASS;
 } // end abcList_c::lock()
 //
@@ -211,11 +170,7 @@ abcResult_e	abcList_c::writeLock()
 {
 	// locking write requires waiting for all readers to be done.
 	abcResult_e lockStatus = lock();
-	if (lockStatus != ABC_PASS)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILED);
-		return ABC_FAIL;	// returning not locked (lock failed)
-	}
+	CHECK_ERROR(lockStatus,ABC_REASON_LIST_LOCK_FAILED,ABC_FAIL);
 	if (registeredReaders > 0)
 	{
 		// we must wait for all readers to complete
@@ -233,11 +188,7 @@ abcResult_e	abcList_c::writeLockNoWait()
 {
 	// locking write requires waiting for all readers to be done.
 	abcResult_e lockStatus = lock();
-	if (lockStatus != ABC_PASS)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_LOCK_FAILED);
-		return ABC_FAIL;	// returning not locked (lock failed)
-	}
+	CHECK_ERROR(lockStatus,ABC_REASON_LIST_LOCK_FAILED,ABC_FAIL);
 	if (registeredReaders > 0)
 	{
 		unlock();
@@ -257,24 +208,9 @@ abcResult_e	abcList_c::writeRelease()
 		pthread_cond_broadcast(&writerCondVar);
 	}
 	abcResult_e unlockResult = unlock();
-	if (unlockResult != ABC_PASS)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_UNLOCK_FAILED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(unlockResult,ABC_REASON_LIST_UNLOCK_FAILED,ABC_FAIL);
 	return ABC_PASS;
 } // end abcList_c::writeRelease()
-
-// Error handling stuff & print stuff
-void abcList_c::setErrorReason(abcReason_e reason)
-{
-	errorReason = reason;
-}
-
-abcReason_e abcList_c::getErrorReason()
-{
-	return errorReason;
-}
 
 char *abcList_c::getObjType()
 {
@@ -317,26 +253,22 @@ abcResult_e abcList_c::printBuff(char *pBuff, int pbuffSize, abcPrintStyle_e pri
 
 abcListNode_c		*abcList_c::head()
 {
-	TRACE_ENTRY("abcList_c");
 	currNode = headNode;
 	return currNode;
 }
 abcListNode_c		*abcList_c::tail()
 {
-	TRACE_ENTRY("abcList_c");
 	currNode = tailNode;
 	return currNode;
 }
 abcListNode_c		*abcList_c::next()
 {
-	TRACE_ENTRY("abcList_c");
 	if (!currNode) return NULL;
 	currNode = (abcListNode_c *)currNode->next();
 	return currNode;
 }
 abcListNode_c		*abcList_c::prev()
 {
-	TRACE_ENTRY("abcList_c");
 	if (!currNode) return NULL;
 	currNode = (abcListNode_c *)currNode->prev();
 	return currNode;
@@ -344,7 +276,6 @@ abcListNode_c		*abcList_c::prev()
 
 abcListNode_c		*abcList_c::getCurr()
 {
-	TRACE_ENTRY("abcList_c");
 	return currNode;
 }
 ////////
@@ -356,18 +287,15 @@ abcListNode_c		*abcList_c::getCurr()
 //
 abcListNode_c *abcList_c::getHead()
 {
-	TRACE_ENTRY("abcList_c");
 	return headNode;
 }
 abcListNode_c *abcList_c::getTail()
 {
-	TRACE_ENTRY("abcList_c");
 	return tailNode;
 }
 
 int64_t abcList_c::getNodeCount()
 {
-	TRACE_ENTRY("abcList_c");
 	return nodeCount;
 }
 
@@ -376,22 +304,9 @@ abcResult_e abcList_c::addHead(abcListNode_c *nodeToAdd)
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	// sanity test on the node being added
-	if (!nodeToAdd)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL);
-		return ABC_FAIL;
-	}
-	// confirm there is no owner of the new node
-	if (nodeToAdd->owner)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_OWNER_NOT_NULL);
-		return ABC_FAIL;
-	}
-	if (isSorted && (nodeCount > 0))
-	{
-		// list already has unsorted elements
-		FATAL_ERROR(ABC_REASON_LIST_IS_SORTED);
-	}
+	CHECK_ERROR(!nodeToAdd,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+	CHECK_ERROR(nodeToAdd->owner,ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
+	CHECK_ERROR((isSorted && (nodeCount > 0)),ABC_REASON_LIST_IS_SORTED,ABC_FAIL);
 #endif
 	return  abcList_c::addHeadPriv(nodeToAdd);
 }
@@ -399,7 +314,6 @@ abcResult_e abcList_c::addHeadPriv(abcListNode_c *nodeToAdd)
 {
 	// everything pre-validated from here.
 	// add additional checks to public routines or other callers
-	TRACE_ENTRY("abcList_c");
 
 	nodeToAdd->owner = this;
 	if (nodeCount)
@@ -423,7 +337,6 @@ abcResult_e abcList_c::addHeadPriv(abcListNode_c *nodeToAdd)
 		headNode = tailNode = nodeToAdd;
 		nodeCount = 1;
 	}
-	TRACE_EXIT("abcList_c");
 	return ABC_PASS;
 } // end abcList_c::addHeadPriv()
 
@@ -431,27 +344,14 @@ abcResult_e abcList_c::addTail(abcListNode_c *nodeToAdd)							 // add a new nod
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	// sanity test on the node being added
-	if (!nodeToAdd)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL);
-		return ABC_PASS;
-	}
-	// confirm there is no owner of the new node
-	if (nodeToAdd->owner) {
-		FATAL_ERROR(ABC_REASON_NODE_OWNER_NOT_NULL);
-		return ABC_PASS;
-	}
-	if (isSorted && nodeCount > 0)
-	{
-		// list already has unsorted elements
-		FATAL_ERROR(ABC_REASON_LIST_IS_SORTED);
-	}
+	CHECK_ERROR(!nodeToAdd,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+	CHECK_ERROR(nodeToAdd->owner,ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
+	CHECK_ERROR((isSorted && (nodeCount > 0)),ABC_REASON_LIST_IS_SORTED,ABC_FAIL);
 #endif
 	return abcList_c::addTailPriv(nodeToAdd);							 // add a new node at tail and update tail.  Do not update current
 }
 abcResult_e abcList_c::addTailPriv(abcListNode_c *nodeToAdd)							 // add a new node at tail and update tail.  Do not update current
 {
-	TRACE_ENTRY("abcList_c");
 	nodeToAdd->owner = this;	// checkOwner
 
 	if (nodeCount != 0)
@@ -475,7 +375,6 @@ abcResult_e abcList_c::addTailPriv(abcListNode_c *nodeToAdd)							 // add a new
 		headNode = tailNode = nodeToAdd;
 		nodeCount = 1;
 	}
-	TRACE_EXIT("abcList_c");
 	return ABC_PASS;
 } // end abcList_c::addTail()
 
@@ -486,27 +385,10 @@ abcResult_e abcList_c::addMiddle(abcListNode_c *nodeToInsert, abcListNode_c *nod
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	// sanity test on the node being added
-	if (!nodeToInsert)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL);
-		return ABC_FAIL;
-	}
-	// confirm there is no owner of the new node
-	if (nodeToFollow->owner != this)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_NOT_ON_LIST); // its on a different list
-		return ABC_FAIL;
-	}
-	if (nodeToInsert->owner != NULL)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_OWNER_NOT_NULL); // its on a different list
-		return ABC_FAIL;
-	}
-	if (isSorted && nodeCount > 0)
-	{
-		// list already has unsorted elements
-		FATAL_ERROR(ABC_REASON_LIST_IS_SORTED);
-	}
+	CHECK_ERROR(!nodeToInsert,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+	CHECK_ERROR(nodeToInsert->owner,ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
+	CHECK_ERROR(nodeToFollow->owner!=this,ABC_REASON_NODE_NOT_ON_LIST,ABC_FAIL);
+	CHECK_ERROR((isSorted && (nodeCount > 0)),ABC_REASON_LIST_IS_SORTED,ABC_FAIL);
 #endif
 	return abcList_c::insertPriv(nodeToInsert, nodeToFollow);
 }
@@ -515,44 +397,22 @@ abcResult_e abcList_c::insert(abcListNode_c *nodeToInsert, abcListNode_c *nodeTo
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	// sanity test on the node being added
-	if (!nodeToInsert)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL);
-		return ABC_FAIL;
-	}
-	// confirm there is no owner of the new node
-	if (nodeToFollow->owner != this)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_NOT_ON_LIST); // its on a different list
-		return ABC_FAIL;
-	}
-	if (nodeToInsert->owner != NULL)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_OWNER_NOT_NULL); // its on a different list
-		return ABC_FAIL;
-	}
-	if (isSorted && nodeCount > 0)
-	{
-		// list already has unsorted elements
-		FATAL_ERROR(ABC_REASON_LIST_IS_SORTED);
-	}
+	CHECK_ERROR(!nodeToInsert,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+	CHECK_ERROR(nodeToInsert->owner,ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
+	CHECK_ERROR(nodeToFollow->owner!=this,ABC_REASON_NODE_NOT_ON_LIST,ABC_FAIL);
+	CHECK_ERROR((isSorted && (nodeCount > 0)),ABC_REASON_LIST_IS_SORTED,ABC_FAIL);
 #endif
 	return abcList_c::insertPriv(nodeToInsert, nodeToFollow);
 }
 abcResult_e abcList_c::insertPriv(abcListNode_c *nodeToInsert, abcListNode_c *nodeToFollow)
 {
-	TRACE_ENTRY("abcList_c");
 	nodeToInsert->owner = this;
 	if (nodeCount)
 	{
 		// list already exists
 #ifdef _LIST_RIGOROUS_TESTING_
 		// sanity test on the node being added
-		if (!nodeToFollow)
-		{
-			FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL); // its on a different list
-			return ABC_FAIL;
-		}
+		CHECK_ERROR(!nodeToFollow,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
 #endif
 
 		// hook in all the links
@@ -583,56 +443,27 @@ abcResult_e abcList_c::insertPriv(abcListNode_c *nodeToInsert, abcListNode_c *no
 		// brand new list
 #ifdef _LIST_RIGOROUS_TESTING_
 		// sanity test on the node being added
-		if (nodeToFollow)
-		{
-			FATAL_ERROR(ABC_REASON_NODE_PARAM_SHOULD_BE_NULL); // its on a different list
-			return ABC_FAIL;
-		}
+		CHECK_ERROR(nodeToFollow,ABC_REASON_NODE_PARAM_SHOULD_BE_NULL,ABC_FAIL); // its on a different list
 #endif
 		headNode = tailNode = nodeToInsert;
 		nodeCount = 1;
 	}
-	TRACE_EXIT("abcList_c");
 	return ABC_PASS;
 } // end abcList_c::insertCommon()
 
 abcResult_e abcList_c::remove(abcListNode_c *nodeToRemove)
 {
-	TRACE_ENTRY("abcList_c");
 #ifdef _LIST_RIGOROUS_TESTING_
 	// sanity test on the node being added
-	if (!nodeToRemove)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL); //nodeToRemove can't be null
-		return ABC_FAIL;
-	}
-	// confirm there is no owner of the new node
-	if (nodeToRemove->owner != this)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_NOT_ON_LIST); // its on a different list
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(!nodeToRemove,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+	CHECK_ERROR((nodeToRemove->owner != this),ABC_REASON_NODE_NOT_ON_LIST,ABC_FAIL);
 #endif
 	if (nodeCount < 2)
 	{
 #ifdef _LIST_RIGOROUS_TESTING_
-		if (!nodeCount)
-		{
-			// nodeCount zero... no way to delete a node
-			FATAL_ERROR(ABC_REASON_NODE_BAD_LINK_STRUCTURE);
-			return ABC_FAIL;
-		}
-		// node shoud be both head and tail
-		if (nodeToRemove != headNode)
-		{
-			FATAL_ERROR(ABC_REASON_NODE_BAD_LINK_STRUCTURE);
-			return ABC_FAIL;
-		}
-		if (nodeToRemove != tailNode)
-		{
-			FATAL_ERROR(ABC_REASON_NODE_BAD_LINK_STRUCTURE);
-			return ABC_FAIL;
-		}
+		CHECK_ERROR(!nodeCount,ABC_REASON_NODE_BAD_LINK_STRUCTURE,ABC_FAIL);
+		CHECK_ERROR((nodeToRemove != headNode),ABC_REASON_NODE_BAD_LINK_STRUCTURE,ABC_FAIL); // node shoud be both head and tail
+		CHECK_ERROR((nodeToRemove != tailNode),ABC_REASON_NODE_BAD_LINK_STRUCTURE,ABC_FAIL); // node shoud be both head and tail
 #endif
 		// with just one node, we're emptying the list
 		headNode = tailNode = NULL;
@@ -662,7 +493,6 @@ abcResult_e abcList_c::remove(abcListNode_c *nodeToRemove)
 	// make sure the removed node can link back into the list
 	nodeToRemove->prevNode = nodeToRemove->nextNode = NULL;
 	nodeToRemove->owner=NULL;
-	TRACE_EXIT("abcList_c");
 	return ABC_PASS;
 } // end abcList_c::remove(abcListNode_c *nodeToRemove)
 
@@ -698,22 +528,9 @@ abcResult_e abcList_c::addSorted(abcListNode_c *nodeToAdd, const uint8_t towards
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	// sanity test on the node being added
-	if (!nodeToAdd)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL);
-		return ABC_FAIL;
-	}
-	if (nodeToAdd->owner != NULL)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_OWNER_NOT_NULL); // its on a different list
-		return ABC_FAIL;
-	}
-	if (!isSorted && nodeCount > 0)
-	{
-		// list already has unsorted elements
-		FATAL_ERROR(ABC_REASON_LIST_NOT_SORTED);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(!nodeToAdd,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+	CHECK_ERROR(nodeToAdd->owner,ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL); // its on a different list
+	CHECK_ERROR((!isSorted && nodeCount > 0),ABC_REASON_LIST_NOT_SORTED,ABC_FAIL); // its on a different list
 #endif
 	nodeToAdd->owner = this;
 	isSorted = TRUE;
@@ -723,6 +540,7 @@ abcResult_e abcList_c::addSorted(abcListNode_c *nodeToAdd, const uint8_t towards
 	while (walkNode)
 	{
 		abcResult_e diffResult = walkNode->diffKey(searchKey);
+		CHECK_ERROR(diffResult == ABC_ERROR,ABC_REASON_NODE_KEY_DIFF_ERROR,ABC_FAIL);
 		if (towardsNext)
 		{
 			// moving right (towards tail)  Continue while 
@@ -776,22 +594,24 @@ abcResult_e abcList_c::addSorted(abcListNode_c *nodeToAdd, const uint8_t towards
 } // end abcResult_e abcList_c::addSorted(abcListNode_c *nodeToAdd, const uint8_t towardsNext )
 
 // search stateless only
-abcListNode_c *abcList_c::findFirst(nodeKey_s *searchKey,uint8_t towardsNext)
+abcListNode_c *abcList_c::findFirst(nodeKey_s *searchKey,uint8_t towardsNext, abcResult_e *resultOut)
 {
 	// get start pointer
 	abcListNode_c *startNode = towardsNext ? headNode : tailNode;
 	if (startNode == NULL)
 	{
 		// ran to end
+		if (resultOut) *resultOut = ABC_PASS;
 		return NULL;
 	}
-	return findActual(searchKey,startNode,towardsNext);
+	return findActual(searchKey,startNode,towardsNext, resultOut);
 } // end abcList_c::findFirst()
 
-abcListNode_c *abcList_c::findNext(nodeKey_s *searchKey, abcListNode_c *previouslyFoundNode, uint8_t towardsNext)
+abcListNode_c *abcList_c::findNext(nodeKey_s *searchKey, abcListNode_c *previouslyFoundNode, uint8_t towardsNext, abcResult_e *resultOut)
 {
 	if (!previouslyFoundNode)
 	{
+		if (resultOut) *resultOut = ABC_FAIL;
 		return NULL;	// an error, but not fatal
 	}
 	
@@ -802,6 +622,7 @@ abcListNode_c *abcList_c::findNext(nodeKey_s *searchKey, abcListNode_c *previous
 	if (startNode == NULL)
 	{
 		// ran to end
+		if (resultOut) *resultOut = ABC_PASS;
 		return NULL;
 	}
 
@@ -812,23 +633,31 @@ abcListNode_c *abcList_c::findNext(nodeKey_s *searchKey, abcListNode_c *previous
 // if null returned... means we've run off the end of the list.
 // this is the place where real work is done.  First possible match is at "startNode"... continuing on in the
 // desired dirction
-abcListNode_c		*abcList_c::findActual(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext)
+abcListNode_c		*abcList_c::findActual(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext, abcResult_e *resultOut)
 {
 	// startNode already validated as non-null
 	abcListNode_c *walkNode = startNode;
+	abcResult_e diffResult;
 	while (walkNode != NULL)
 	{
 		// read the question as "is the external key >= this node's key
 		// if so, just past this node is the pace to do an insert
-		abcResult_e diffResult = walkNode->diffKey(searchKey);
+		diffResult = walkNode->diffKey(searchKey);
 		if (diffResult ==  ABC_EQUAL)
 		{
 			// gone past it
 			// if returnNode is NULL means we're before the startpoint
+			if (resultOut) *resultOut = ABC_PASS;
 			return walkNode;
 		}
 		walkNode = (abcListNode_c *)(towardsNext ? walkNode->next() : walkNode->prev());
 	}
+	if (resultOut)
+	{
+		if (diffResult == ABC_ERROR) *resultOut = ABC_FAIL; else *resultOut = ABC_PASS;
+	}
+	// doing error check down here because it won't slow down the search, and its here for robustness only.
+	CHECK_ERROR(diffResult == ABC_ERROR,ABC_REASON_NODE_KEY_TYPE_INVALID,NULL);
 	return NULL; // didn't find a match... we ran off the end of the list
 } // end abcList_c::findActual()
 
@@ -837,7 +666,6 @@ abcListNode_c		*abcList_c::findActual(nodeKey_s *searchKey, abcListNode_c *start
 //
 abcResult_e abcList_c::empty()
 {
-	TRACE_ENTRY("abcList_c");
 
 	abcListNode_c *tmpNode = NULL;
 	abcListNode_c *walkNode = headNode;
@@ -860,19 +688,17 @@ abcResult_e abcList_c::empty()
 #ifdef _LIST_RIGOROUS_TESTING_
 	if (nodeCount)
 	{
-		FATAL_ERROR(ABC_REASON_LIST_BAD_NODE_COUNT);
+		ERROR(ABC_REASON_LIST_BAD_NODE_COUNT);
 		nodeCount = 0;
 		return ABC_FAIL;
 	}
 #else
 	nodeCount = 0;
 #endif
-	TRACE_EXIT("abcList_c");
 	return ABC_PASS;
 }
 abcResult_e abcList_c::diff(class abcList_c *otherList)
 {
-	TRACE_NONIMPL("abcList_c");
 	return ABC_FAIL;
 }
 
@@ -880,46 +706,27 @@ abcResult_e abcList_c::diff(class abcList_c *otherList)
 // this will use the virtual clone function of the abcListNode_c object
 abcList_c *abcList_c::clone()
 {
-	TRACE_ENTRY("abcList_c");
-
-
-	//  check to avoid object size change  disaster.
-	#define APPROVED_SIZE 272
-	#define SIZE_CHECK_OBJ abcList_c
-	if (sizeof(SIZE_CHECK_OBJ) - APPROVED_SIZE)
-	{
-		char errStr[128];
-		snprintf(errStr,128,"sizeof \"%s\" changed from %d to %d at %s:%d",STRINGIFY(SIZE_CHECK_OBJ),(int)APPROVED_SIZE,(int)sizeof(SIZE_CHECK_OBJ),__FILE__,__LINE__);
-		PROD_ERROR(errStr);
-		FATAL_ERROR(ABC_REASON_OBJECT_SIZE_WRONG);
-		return NULL;
-	}
-	#undef APPROVED_SIZE
-	#undef SIZE_CHECK_OBJ
-
 	// the list has a name but this nodes typically don't
 	abcList_c *newList = new abcList_c();
 	abcResult_e cloneResult = abcList_c::copyOut(newList);
 	if (cloneResult != ABC_PASS)
 	{
 		delete newList;
-		FATAL_ERROR(ABC_REASON_LIST_CLONE_FAILED);
+		ERROR(ABC_REASON_LIST_CLONE_FAILED);
 		return NULL;
 	}
-	TRACE_EXIT("abcList_c");
 	return newList;
 }
 
 abcResult_e abcList_c::copyOut(abcList_c *targetOfCopy)
 {
+	OBJ_SIZE_CHECK(abcList_c,272);
+
 	// first handle the abcListNode_c copyOut.
 	// this will bring across the search key in the event
 	// that it has been initialized
 	abcResult_e ncoResult = abcListNode_c::copyOut(targetOfCopy);
-	if ( ncoResult != ABC_PASS)
-	{
-		return ncoResult;
-	}
+	CHECK_ERROR(ncoResult,ABC_REASON_LIST_CLONE_FAILED,ncoResult);
 
 	if (name)
 	{
@@ -933,21 +740,15 @@ abcResult_e abcList_c::copyOut(abcList_c *targetOfCopy)
 	while (walkNode != NULL)
 	{
 		#ifdef _LIST_RIGOROUS_TESTING_		// check owner value when defined
-		if (walkNode->owner != this)
-		{
-			FATAL_ERROR(ABC_REASON_NODE_NOT_OWNED);
-			return ABC_FAIL;
-		}
+		CHECK_ERROR((walkNode->owner != this),ABC_REASON_NODE_NOT_OWNED,ABC_FAIL);
 		#endif
 
 		abcListNode_c *copyNode = walkNode->clone();
-		if (copyNode == NULL)
-		{
-			FATAL_ERROR(ABC_REASON_NODE_CLONE_FAILED);
-			return ABC_FAIL;
-		}
+		CHECK_ERROR((copyNode == NULL),ABC_REASON_NODE_CLONE_FAILED,ABC_FAIL);
 		
-		targetOfCopy->addTail(copyNode);
+		abcResult_e res = targetOfCopy->addTail(copyNode);
+		CHECK_ERROR(res,ABC_REASON_NODE_CLONE_FAILED,ABC_FAIL);
+
 		walkNode = (abcListNode_c *)walkNode->next();	// next returns an abcNode_c*
 	}
 
@@ -958,12 +759,9 @@ abcResult_e abcList_c::copyOut(abcList_c *targetOfCopy)
 	targetOfCopy->registeredReaders = 0;
 	if (lockingEnabled)
 	{
-		targetOfCopy->enableLocking();
+		abcResult_e res =targetOfCopy->enableLocking();
+		CHECK_ERROR(res,ABC_REASON_MUTEX_INIT_FAILED,ABC_FAIL);
 	}
-
-
-	// TODO: all locks and other additions must find their way here.
-	// not copying head, tail, curr.  nodeCount, errorReason
 	targetOfCopy->isSorted = isSorted;
 
 	
@@ -1014,21 +812,11 @@ abcSlicedList_c::~abcSlicedList_c()
 // hashList is different
 abcResult_e abcSlicedList_c::init(int setSliceCount)
 {
-	TRACE_ENTRY("abcSlicedList_c");
-	if (sliceCount != 0)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_ALREADY_INITIALIZED);
-		return ABC_FAIL;
-	}
-
-	if ((setSliceCount <2) || (setSliceCount > _LIST_MAX_SLICE_COUNT_))
-	{
-		FATAL_ERROR(ABC_REASON_LIST_BAD_SLICE_COUNT);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR((sliceCount != 0),ABC_REASON_LIST_ALREADY_INITIALIZED,ABC_FAIL);
+	CHECK_ERROR((setSliceCount <2) || (setSliceCount > _LIST_MAX_SLICE_COUNT_),ABC_REASON_LIST_BAD_SLICE_COUNT,ABC_FAIL);
 	sliceCount = setSliceCount;
+	// FIXME... use our fully tracked storage
 	sliceArray = (abcListSlice_s *)calloc(setSliceCount, sizeof(abcListSlice_s));
-	TRACE_EXIT("abcSlicedList_c");
 	return ABC_PASS;
 }
 //
@@ -1081,17 +869,11 @@ abcResult_e abcSlicedList_c::printBuff(char *pBuff, int pbuffSize, abcPrintStyle
 ////////////
 abcResult_e abcSlicedList_c::empty()
 {
-	TRACE_ENTRY("abSlicedcList_c");
-
 	abcListNode_c *tmpNode = NULL;
 	abcListNode_c *walkNode = headNode;
 #ifdef _LIST_RIGOROUS_TESTING_
 	int sliceNumBeingEmptied = (walkNode != NULL) ? walkNode->sliceIndex : 0;
-	if ((sliceNumBeingEmptied <0) || (sliceNumBeingEmptied >= sliceCount))
-	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR((sliceNumBeingEmptied <0) || (sliceNumBeingEmptied >= sliceCount),ABC_REASON_LIST_INVALID_SLICE_NUMBER,ABC_ERROR);
 	abcListSlice_s *sliceBeingEmptied = &sliceArray[sliceNumBeingEmptied];
 #endif
 	while (walkNode)
@@ -1104,11 +886,7 @@ abcResult_e abcSlicedList_c::empty()
 		walkNode->owner = NULL;
 
 		int walkSliceNum=walkNode->sliceIndex;
-		if ((walkSliceNum < 0) || (walkSliceNum >= sliceCount))
-		{
-			FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
-			return ABC_FAIL;
-		}
+		CHECK_ERROR((walkSliceNum < 0) || (walkSliceNum >= sliceCount),ABC_REASON_LIST_INVALID_SLICE_NUMBER,ABC_FAIL);
 #endif
 		if (walkSliceNum != sliceNumBeingEmptied )
 		{
@@ -1118,9 +896,9 @@ abcResult_e abcSlicedList_c::empty()
 			{
 				// bad slice accounting
 				char errStr[128];
-				snprintf(errStr,128,"Slice %d should be empty but is not at %s::%d\n",sliceNumBeingEmptied,__FILE__,__LINE__);
-				PROD_ERROR(errStr);
-				FATAL_ERROR(ABC_REASON_LIST_BAD_SLICE_ACCOUNTING);
+				snprintf(errStr,128,"Slice %d should be empty but is not",sliceNumBeingEmptied);
+				PRINT(errStr);
+				ERROR(ABC_REASON_LIST_BAD_SLICE_ACCOUNTING);
 				return ABC_FAIL;
 			}
 #else
@@ -1146,9 +924,9 @@ abcResult_e abcSlicedList_c::empty()
 	{
 		// bad slice accounting
 		char errStr[128];
-		snprintf(errStr,128,"Slice %d should be empty but is not at %s:%d\n",sliceNumBeingEmptied,__FILE__,__LINE__);
-		PROD_ERROR(errStr);
-		FATAL_ERROR(ABC_REASON_LIST_BAD_SLICE_ACCOUNTING);
+		snprintf(errStr,128,"Slice %d should be empty but is not",sliceNumBeingEmptied);
+		PRINT(errStr);
+		ERROR(ABC_REASON_LIST_BAD_SLICE_ACCOUNTING);
 		return ABC_FAIL;
 	}
 #else
@@ -1161,14 +939,13 @@ abcResult_e abcSlicedList_c::empty()
 #ifdef _LIST_RIGOROUS_TESTING_
 	if (!nodeCount)
 	{
-		FATAL_ERROR(ABC_REASON_LIST_BAD_NODE_COUNT);
+		ERROR(ABC_REASON_LIST_BAD_NODE_COUNT);
 		nodeCount = 0;
 		return ABC_FAIL;
 	}
 #else
 	nodeCount = 0;
 #endif
-	TRACE_EXIT("abcSlicedList_c");
 	return ABC_PASS;
 }
 
@@ -1180,42 +957,28 @@ abcResult_e abcSlicedList_c::diff(class abcList_c *otherList)
 // (virtual) make a copy of this list
 abcList_c *abcSlicedList_c::clone()
 {
-	TRACE_ENTRY("abcSlicedList_c");
-
-	//  check to avoid object size change  disaster.
-	#define APPROVED_SIZE 288
-	#define SIZE_CHECK_OBJ abcSlicedList_c
-	if (sizeof(SIZE_CHECK_OBJ) - APPROVED_SIZE)
-	{
-		char errStr[128];
-		snprintf(errStr,128,"sizeof \"%s\" changed from %d to %d at %s:%d",STRINGIFY(SIZE_CHECK_OBJ),(int)APPROVED_SIZE,(int)sizeof(SIZE_CHECK_OBJ),__FILE__,__LINE__);
-		PROD_ERROR(errStr);
-		FATAL_ERROR(ABC_REASON_OBJECT_SIZE_WRONG);
-		return NULL;
-	}
-	#undef APPROVED_SIZE
-	#undef SIZE_CHECK_OBJ
-
 	// the list has a name but this nodes typically don't
 	abcSlicedList_c *newList = new abcSlicedList_c();
 	abcResult_e cloneResult = abcSlicedList_c::copyOut(newList);
 	if (cloneResult != ABC_PASS)
 	{
 		delete newList;
-		FATAL_ERROR(ABC_REASON_LIST_CLONE_FAILED);
+		ERROR(ABC_REASON_LIST_CLONE_FAILED);
 		return NULL;
 	}
-	TRACE_EXIT("abcSlicedList_c");
 	return newList;
 }
 // come here to copy the contents of the freshly allocated list object
 abcResult_e abcSlicedList_c::copyOut(abcSlicedList_c *targetOfCopy)
 {
+	OBJ_SIZE_CHECK(abcSlicedList_c,288);
+
 	// we won't use abcList_c::copyOut to copy all of the nodes.
 	// it will cause a problem with slice handlng so we'll do it manually here
 
 	// but we will use abcListNode_c's copyOut
-	abcResult_e coResult = abcListNode_c::copyOut(targetOfCopy);
+	abcResult_e res = abcListNode_c::copyOut(targetOfCopy);
+	CHECK_ERROR(res,ABC_REASON_LIST_CLONE_FAILED,ABC_FAIL);
 
 	// now do abcList_c's copyOut work
 	if (name)
@@ -1226,8 +989,16 @@ abcResult_e abcSlicedList_c::copyOut(abcSlicedList_c *targetOfCopy)
 		targetOfCopy->name = strdup(cloneName);
 	}
 	// won't copu nodeCount,headNode,tailNode,currNode.
+	targetOfCopy->lockingEnabled = FALSE;
+	targetOfCopy->writerIsWaiting = FALSE;
+	targetOfCopy->readerIsWaiting = FALSE;
+	targetOfCopy->registeredReaders = 0;
+	if (lockingEnabled)
+	{
+		abcResult_e res = targetOfCopy->enableLocking();
+		CHECK_ERROR(res,ABC_REASON_LIST_CLONE_FAILED,ABC_FAIL);
+	}
 	targetOfCopy->isSorted = isSorted;
-	targetOfCopy->errorReason = errorReason;
 
 	// need to build the slice array now so we can use it
 	targetOfCopy->sliceCount = sliceCount;
@@ -1239,19 +1010,11 @@ abcResult_e abcSlicedList_c::copyOut(abcSlicedList_c *targetOfCopy)
 	while (walkNode != NULL)
 	{
 		#ifdef _LIST_RIGOROUS_TESTING_		// check owner value when defined
-		if (walkNode->owner != this)
-		{
-			FATAL_ERROR(ABC_REASON_NODE_NOT_OWNED);
-			return ABC_FAIL;
-		}
+		CHECK_ERROR((walkNode->owner != this),ABC_REASON_NODE_NOT_OWNED,ABC_FAIL);
 		#endif
 
 		abcListNode_c *copyNode = walkNode->clone();
-		if (copyNode == NULL)
-		{
-			FATAL_ERROR(ABC_REASON_NODE_CLONE_FAILED);
-			return ABC_FAIL;
-		}
+		CHECK_ERROR(!copyNode,ABC_REASON_NODE_CLONE_FAILED,ABC_FAIL);
 		
 		// rebuild the new list by letting it build the slice array 
 		targetOfCopy->abcSlicedList_c::addSliceTail(copyNode->sliceIndex,copyNode);
@@ -1259,7 +1022,6 @@ abcResult_e abcSlicedList_c::copyOut(abcSlicedList_c *targetOfCopy)
 	}
 	// our work is already done (just sliceCount and sliceArray
 
-	TRACE_ENTRY("abcSlicedList_c");
 	return ABC_PASS;
 }
 
@@ -1276,15 +1038,13 @@ abcList_c *extractCommonList(class abcList_c *otherList)
 // so their overload will return an error
 abcResult_e		abcSlicedList_c::addHead(abcListNode_c *nodeToAdd)
 {
-	TRACE_ENTRY("abcSlicedList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 // add a new node at head and update head.  Do not update current.
 abcResult_e		abcSlicedList_c::addTail(abcListNode_c *nodeToAdd)
 {
-	TRACE_ENTRY("abcSlicedList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 
@@ -1292,21 +1052,18 @@ abcResult_e		abcSlicedList_c::addTail(abcListNode_c *nodeToAdd)
 // insert new node after specified noed
 abcResult_e		abcSlicedList_c::addMiddle(abcListNode_c *nodeToAdd, abcListNode_c *nodeToFollow )
 {
-	TRACE_ENTRY("abcSlicedList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 // can't do an insert on a slicedList.   not publiclly anyway.
 abcResult_e abcSlicedList_c::insert(abcListNode_c *nodeToInsert, abcListNode_c *nodeToFollow)
 {
-	TRACE_ENTRY("abcSlicedList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 abcResult_e abcSlicedList_c::insertPriv(abcListNode_c *nodeToInsert, abcListNode_c *nodeToFollow)
 {
-	TRACE_ENTRY("abcSlicedList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 
@@ -1316,20 +1073,11 @@ abcResult_e abcSlicedList_c::insertPriv(abcListNode_c *nodeToInsert, abcListNode
 //  same as base class remove except that we need to do slice accounting
 abcResult_e		abcSlicedList_c::remove(abcListNode_c *nodeToRemove)
 {
-	TRACE_ENTRY("abcSlicedList_c");
 #ifdef _LIST_RIGOROUS_TESTING_
-	if (!nodeToRemove)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL);
-		return ABC_FAIL;
-	}
-	// sliceNum is valid for both hashList and slicedList
+	CHECK_ERROR(!nodeToRemove,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+
 	int sliceNum = nodeToRemove->sliceIndex;
-	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
-	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(((sliceNum < 0 ) || (sliceNum >= sliceCount)),ABC_REASON_LIST_INVALID_SLICE_NUMBER,ABC_FAIL);
 #else
 	int sliceNum = nodeToRemove->sliceIndex;
 #endif
@@ -1348,7 +1096,6 @@ abcResult_e		abcSlicedList_c::remove(abcListNode_c *nodeToRemove)
 
 	// use baseClass remove to handle the actual list.
 	// will check owner and baseClass nodeCount and head/tail
-	TRACE_EXIT("abcSlicedList_c");
 	return abcList_c::remove(nodeToRemove);
 }
 // ::pullHead and ::pullTail can work out of the baseclass b
@@ -1361,8 +1108,7 @@ abcResult_e		abcSlicedList_c::remove(abcListNode_c *nodeToRemove)
 // simple linear sorting =  can't work correctly
 abcResult_e 	abcSlicedList_c::addSorted(abcListNode_c *nodeToAdd, const uint8_t towardsNext )
 {
-	TRACE_ENTRY("abcSlicedList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 
@@ -1377,43 +1123,47 @@ abcResult_e 	abcSlicedList_c::addSorted(abcListNode_c *nodeToAdd, const uint8_t 
 //
 // *****************************************************************************************************************
 
-abcListNode_c *abcSlicedList_c::getSliceHead(int64_t sliceNum)
+abcListNode_c *abcSlicedList_c::getSliceHead(int64_t sliceNum,abcResult_e *resultOut)
 {
-	TRACE_ENTRY("abcSlicedList_c");
 #ifdef _LIST_RIGOROUS_TESTING_
 	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
 	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		if (resultOut) *resultOut = ABC_FAIL;
 		return NULL;
 	}
 #endif
 	abcListSlice_s *sliceRec = &sliceArray[sliceNum];
+	if (resultOut) *resultOut = ABC_PASS;
 	return sliceRec->headNode;
 	
 }
-abcListNode_c			*abcSlicedList_c::getSliceTail(int64_t sliceNum)
+abcListNode_c			*abcSlicedList_c::getSliceTail(int64_t sliceNum, abcResult_e *resultOut)
 {
-	TRACE_ENTRY("abcSlicedList_c");
 #ifdef _LIST_RIGOROUS_TESTING_
 	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
 	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		if (resultOut) *resultOut = ABC_FAIL;
 		return NULL;
 	}
 #endif
 	abcListSlice_s *sliceRec = &sliceArray[sliceNum];
+	if (resultOut) *resultOut = ABC_PASS;
 	return sliceRec->tailNode;
 }
-int64_t					abcSlicedList_c::getSliceNodeCount(int64_t sliceNum)
+int64_t					abcSlicedList_c::getSliceNodeCount(int64_t sliceNum, abcResult_e *resultOut)
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
 	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		if (resultOut) *resultOut = ABC_FAIL;
 		return 0;
 	}
 #endif
 	abcListSlice_s *sliceRec = &sliceArray[sliceNum];
+	if (resultOut) *resultOut = ABC_PASS;
 	return sliceRec->nodeCount;
 }
 
@@ -1422,21 +1172,20 @@ int64_t					abcSlicedList_c::getSliceNodeCount(int64_t sliceNum)
 // this is more consistent with how we'll want the hashList to work... since Hashlist will not have an easyily creaded hashIndex
 abcResult_e				abcSlicedList_c::addSliceHead(int64_t sliceNum, abcListNode_c *nodeToAdd) // add a new node at head and update head.  Do not update current.
 {
-	TRACE_ENTRY("abcSlicedList_c");
 #ifdef _LIST_RIGOROUS_TESTING_
 	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
 	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
 		return ABC_FAIL;
 	}
 	if (!nodeToAdd)
 	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL); //nodeToAdd can't be null
+		ERROR(ABC_REASON_NODE_PARAM_IS_NULL); //nodeToAdd can't be null
 		return ABC_FAIL;
 	}
 	if (nodeToAdd->owner != NULL)
 	{
-		FATAL_ERROR(ABC_REASON_NODE_OWNER_NOT_NULL); // node must not be on a list
+		ERROR(ABC_REASON_NODE_OWNER_NOT_NULL); // node must not be on a list
 		return ABC_FAIL;
 	}
 #endif
@@ -1478,23 +1227,10 @@ abcResult_e				abcSlicedList_c::addSliceHead(int64_t sliceNum, abcListNode_c *no
 }
 abcResult_e	abcSlicedList_c::addSliceTail(int64_t sliceNum, abcListNode_c *nodeToAdd) // add a new node at tail and update tail.  Do not update currenty
 {
-	TRACE_ENTRY("abcSlicedList_c");
 #ifdef _LIST_RIGOROUS_TESTING_
-	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
-	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
-		return ABC_FAIL;
-	}
-	if (!nodeToAdd)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL); //nodeToAdd can't be null
-		return ABC_FAIL;
-	}
-	if (nodeToAdd->owner != NULL)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_OWNER_NOT_NULL); // node must not be on a list
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(((sliceNum < 0 ) || (sliceNum >= sliceCount)),ABC_REASON_LIST_INVALID_SLICE_NUMBER,ABC_FAIL);
+	CHECK_ERROR(!nodeToAdd,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+	CHECK_ERROR((nodeToAdd->owner != NULL),ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
 #endif
 	nodeToAdd->sliceIndex = sliceNum;		// install the actual sliceNum into the record.
 	abcListSlice_s *sliceRec = &sliceArray[sliceNum];
@@ -1525,7 +1261,6 @@ abcResult_e	abcSlicedList_c::addSliceTail(int64_t sliceNum, abcListNode_c *nodeT
 
 abcResult_e				abcSlicedList_c::addSliceMiddle(int64_t sliceNum, abcListNode_c *nodeToAdd, abcListNode_c *nodeToFollow ) // insert new node after specified node
 {
-	TRACE_ENTRY("abcSlicedList_c");
 	if (nodeToFollow == NULL)
 	{
 		// then we must be adding at the head of the slice
@@ -1533,21 +1268,9 @@ abcResult_e				abcSlicedList_c::addSliceMiddle(int64_t sliceNum, abcListNode_c *
 	}
 
 #ifdef _LIST_RIGOROUS_TESTING_
-	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
-	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
-		return ABC_FAIL;
-	}
-	if (!nodeToAdd)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL); //nodeToAdd can't be null
-		return ABC_FAIL;
-	}
-	if (nodeToAdd->owner != NULL)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_OWNER_NOT_NULL); // node must not be on a list
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(((sliceNum < 0 ) || (sliceNum >= sliceCount)),ABC_REASON_LIST_INVALID_SLICE_NUMBER,ABC_FAIL);
+	CHECK_ERROR(!nodeToAdd,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+	CHECK_ERROR((nodeToAdd->owner != NULL),ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
 #endif
 
 	// if nodeToFollow is null, then we're inserting at the the head.
@@ -1556,12 +1279,7 @@ abcResult_e				abcSlicedList_c::addSliceMiddle(int64_t sliceNum, abcListNode_c *
 
 #ifdef _LIST_RIGOROUS_TESTING_
 	// lets verify that the sliceNum matches the nodeToFollow's sliceNum
-	if (sliceNum != nodeToFollow->sliceIndex)
-	{
-		// busted !
-		FATAL_ERROR(ABC_REASON_LIST_NODE_SLICE_MISMATCH);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR((sliceNum != nodeToFollow->sliceIndex),ABC_REASON_LIST_NODE_SLICE_MISMATCH,ABC_FAIL);
 #endif
 	if (nodeToFollow == sliceRec->tailNode)
 	{
@@ -1569,13 +1287,8 @@ abcResult_e				abcSlicedList_c::addSliceMiddle(int64_t sliceNum, abcListNode_c *
 	}
 	// we're doing an insert in the middle of a slice
 	// that is as long as we actually have a slice
-	if (sliceRec->nodeCount == 0)
-	{
-		// this is an error because nodeToFollow should have been NULL
-		// which as a case handled above.
-		FATAL_ERROR(ABC_REASON_LIST_BAD_SLICE_ACCOUNTING);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(sliceRec->nodeCount == 0,ABC_REASON_LIST_BAD_SLICE_ACCOUNTING,ABC_FAIL); // / this is an error because nodeToFollow should have been NULL which as a case handled above.
+
 	sliceRec->nodeCount++;
 	nodeToAdd->sliceIndex = sliceNum;
 	return abcList_c::insertPriv(nodeToAdd,nodeToFollow);
@@ -1600,16 +1313,17 @@ abcListNode_c   *abcSlicedList_c::pullSliceTail(int64_t sliceNum)
 	return returnVal;
 }
 
-abcListNode_c		*abcSlicedList_c::findSliceFirst(int64_t sliceNum, nodeKey_s *searchKey,uint8_t towardsNext) // towardsNext controls search direction   towardsNext==1 starts from head.  ==0 starts from tail
+abcListNode_c		*abcSlicedList_c::findSliceFirst(int64_t sliceNum, nodeKey_s *searchKey,uint8_t towardsNext, abcResult_e *resultOut) // towardsNext controls search direction   towardsNext==1 starts from head.  ==0 starts from tail
 {
-	TRACE_ENTRY("abcSlicedList_c");
 #ifdef _LIST_RIGOROUS_TESTING_
 	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
 	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		if (resultOut) *resultOut = ABC_FAIL;
 		return NULL;
 	}
 #endif
+	if (resultOut) *resultOut = ABC_PASS;
 	// get start pointer for this slice
 	abcListSlice_s *mySlice = &sliceArray[sliceNum];
 	abcListNode_c *startNode = towardsNext ? mySlice->headNode : mySlice->tailNode;
@@ -1618,24 +1332,26 @@ abcListNode_c		*abcSlicedList_c::findSliceFirst(int64_t sliceNum, nodeKey_s *sea
 		// ran to end
 		return NULL;
 	}
-	TRACE_EXIT("abcSlicedList_c");
-	return abcSlicedList_c::findSliceActual(sliceNum,searchKey,startNode,towardsNext);
+	return abcSlicedList_c::findSliceActual(sliceNum,searchKey,startNode,towardsNext,resultOut);
 }
 
-abcListNode_c		*abcSlicedList_c::findSliceNext(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *previouslyFoundNode, uint8_t towardsNext) // doesn't re-examine startnode... move right(next) if towardsNext==1.
+abcListNode_c		*abcSlicedList_c::findSliceNext(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *previouslyFoundNode, uint8_t towardsNext, abcResult_e *resultOut) // doesn't re-examine startnode... move right(next) if towardsNext==1.
 {
-	TRACE_ENTRY("abcSlicedList_c");
 #ifdef _LIST_RIGOROUS_TESTING_
 	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
 	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		if (resultOut) *resultOut = ABC_FAIL;
 		return NULL;
 	}
 #endif
 	if (!previouslyFoundNode)
 	{
+		ERROR(ABC_REASON_NODE_PARAM_IS_NULL);
+		if (resultOut) *resultOut = ABC_FAIL;
 		return NULL;	// an error, but not fatal
 	}
+	if (resultOut) *resultOut = ABC_PASS;
 	
 	// move past the node we previously found and returned to the user
 	abcListNode_c *startNode = (abcListNode_c *)(towardsNext ? previouslyFoundNode->next() : previouslyFoundNode->prev());
@@ -1647,22 +1363,22 @@ abcListNode_c		*abcSlicedList_c::findSliceNext(int64_t sliceNum, nodeKey_s *sear
 		return NULL;
 	}
 
-	TRACE_EXIT("abcSlicedList_c");
 	return abcSlicedList_c::findSliceActual(sliceNum,searchKey,startNode,towardsNext);
 }
-abcListNode_c		*abcSlicedList_c::findSliceActual(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext) // doesn't re-examine startnode... move right(next) if towardsNext==1.
+abcListNode_c		*abcSlicedList_c::findSliceActual(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext, abcResult_e *resultOut) // doesn't re-examine startnode... move right(next) if towardsNext==1.
 {
-	TRACE_ENTRY("abcSlicedList_c");
 #ifdef _LIST_RIGOROUS_TESTING_
 	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
 	{
-		FATAL_ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		ERROR(ABC_REASON_LIST_INVALID_SLICE_NUMBER);
+		if (resultOut) *resultOut = ABC_FAIL;
 		return NULL;
 	}
 	if (sliceNum != startNode->sliceIndex)
 	{
 		// sanity test failed
-		FATAL_ERROR(ABC_REASON_NODE_BAD_LINK_STRUCTURE);
+		ERROR(ABC_REASON_NODE_BAD_LINK_STRUCTURE);
+		if (resultOut) *resultOut = ABC_FAIL;
 		return NULL;
 	}
 #endif
@@ -1674,6 +1390,7 @@ abcListNode_c		*abcSlicedList_c::findSliceActual(int64_t sliceNum, nodeKey_s *se
 		if (walkNode->sliceIndex != sliceNum)
 		{
 			// we're pasted into the next slice... terminate
+			if (resultOut) *resultOut = ABC_PASS;
 			return NULL;
 		}
 
@@ -1684,15 +1401,18 @@ abcListNode_c		*abcSlicedList_c::findSliceActual(int64_t sliceNum, nodeKey_s *se
 		{
 			// gone past it
 			// if returnNode is NULL means we're before the startpoint
+			if (resultOut) *resultOut = ABC_PASS;
 			return walkNode;
 		}
 		if ((diffResult == ABC_ERROR) || (diffResult == ABC_FAIL))
 		{
-			FATAL_ERROR(ABC_REASON_NODE_KEY_TYPE_INVALID);
+			ERROR(ABC_REASON_NODE_KEY_TYPE_INVALID);
+			if (resultOut) *resultOut = ABC_FAIL;
 			return NULL;
 		}
 		walkNode = (abcListNode_c *)(towardsNext ? walkNode->next() : walkNode->prev());
 	}
+	if (resultOut) *resultOut = ABC_PASS;
 	return NULL; // didn't find a match... we ran off the end of the list
 } // end abcSlicedList_c::findSliceActual()
 
@@ -1742,18 +1462,8 @@ abcResult_e abcHashList_c::init(int sliceCount)
 // hashList init sets up parameters for automatic growth [ which is not currently implemented ]
 abcResult_e abcHashList_c::initProtected(int startingSliceCount,int missThresholdForResize, int growthPercent)
 {
-	TRACE_ENTRY("abcHashList_c");
-	if (sliceCount != 0 && nodeCount > 0)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_ALREADY_INITIALIZED);
-		return ABC_FAIL;
-	}
-
-	if ((startingSliceCount <2) || (startingSliceCount > _LIST_MAX_SLICE_COUNT_))
-	{
-		FATAL_ERROR(ABC_REASON_LIST_BAD_SLICE_COUNT);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR((sliceCount != 0 && nodeCount > 0),ABC_REASON_LIST_ALREADY_INITIALIZED,ABC_FAIL);
+	CHECK_ERROR((startingSliceCount <2) || (startingSliceCount > _LIST_MAX_SLICE_COUNT_),ABC_REASON_LIST_BAD_SLICE_COUNT,ABC_FAIL);
 
 	if (sliceArray)
 	{
@@ -1761,12 +1471,11 @@ abcResult_e abcHashList_c::initProtected(int startingSliceCount,int missThreshol
 		sliceArray = NULL;
 	}
 
-	sliceCount = abcGlobalCore->findPrime(startingSliceCount);	// always use a prime sized array for better/even spread of indexes
+	sliceCount = globalCore->findPrime(startingSliceCount);	// always use a prime sized array for better/even spread of indexes
 	sliceArray = (abcListSlice_s *)calloc(sliceCount, sizeof(abcListSlice_s));
 	resizeHashBucketThreshold = missThresholdForResize;
 	resizeHashGrowthPercentage = growthPercent;
 
-	TRACE_EXIT("abcHashList_c");
 	return ABC_PASS;
 }
 //
@@ -1797,41 +1506,25 @@ abcResult_e abcHashList_c::printBuff(char *pBuff, int pbuffSize, abcPrintStyle_e
 
 abcList_c *abcHashList_c::clone()
 {
-	TRACE_ENTRY("abcHashList_c");
-
-	//  check to avoid object size change  disaster.
-	#define APPROVED_SIZE 304
-	#define SIZE_CHECK_OBJ abcHashList_c
-	if (sizeof(SIZE_CHECK_OBJ) - APPROVED_SIZE)
-	{
-		char errStr[128];
-		snprintf(errStr,128,"sizeof \"%s\" changed from %d to %d at %s:%d",STRINGIFY(SIZE_CHECK_OBJ),(int)APPROVED_SIZE,(int)sizeof(SIZE_CHECK_OBJ),__FILE__,__LINE__);
-		PROD_ERROR(errStr);
-		FATAL_ERROR(ABC_REASON_OBJECT_SIZE_WRONG);
-		return NULL;
-	}
-	#undef APPROVED_SIZE
-	#undef SIZE_CHECK_OBJ
-
 	// the list has a name but this nodes typically don't
 	abcHashList_c *newList = new abcHashList_c();
 	abcResult_e cloneResult = abcHashList_c::copyOut(newList);
 	if (cloneResult != ABC_PASS)
 	{
 		delete newList;
-		FATAL_ERROR(ABC_REASON_LIST_CLONE_FAILED);
+		ERROR(ABC_REASON_LIST_CLONE_FAILED);
 		return NULL;
 	}
-	TRACE_EXIT("abcSlicedList_c");
 	return newList;
 }
 
 abcResult_e abcHashList_c::copyOut(abcHashList_c *targetOfCopy)
 {
-	TRACE_ENTRY("abcHashList_c");
+	OBJ_SIZE_CHECK(abcHashList_c,304)
 
 	// but we will use abcListNode_c's copyOut
 	abcResult_e coResult = abcSlicedList_c::copyOut(targetOfCopy);
+	CHECK_ERROR(coResult,ABC_REASON_NODE_CLONE_FAILED,coResult);
 
 	targetOfCopy->specialInit = specialInit;
 	targetOfCopy->startingSliceCount = startingSliceCount;
@@ -1839,7 +1532,6 @@ abcResult_e abcHashList_c::copyOut(abcHashList_c *targetOfCopy)
 	targetOfCopy->resizeHashBucketThreshold = resizeHashBucketThreshold;
 	targetOfCopy->resizeHashGrowthPercentage = resizeHashGrowthPercentage;
 
-	TRACE_ENTRY("abcSlicedList_c");
 	return ABC_PASS;
 }
 
@@ -1877,86 +1569,80 @@ abcResult_e abcHashList_c::copyOut(abcHashList_c *targetOfCopy)
 // Hashlist FindFirst.
 // 
 
-abcListNode_c	*abcHashList_c::findFirst(nodeKey_s *searchKey,uint8_t towardsNext)
+abcListNode_c	*abcHashList_c::findFirst(nodeKey_s *searchKey,uint8_t towardsNext, abcResult_e *resultOut)
 {
-	TRACE_ENTRY("abcHashList_c");
-	uint64_t keyHash = abcListNode_c::calcKeyHash(searchKey);
+	uint64_t keyHash = abcListNode_c::calcKeyHash(searchKey,resultOut);
+	if (resultOut && *resultOut != ABC_PASS) return NULL;
 	int64_t  keyIndex = ((int64_t)keyHash) % sliceCount;
-	keyIndex = keyIndex < 0 ? keyIndex+ sliceCount : keyIndex;
-	return abcSlicedList_c::findSliceFirst(keyIndex, searchKey,towardsNext);
+	keyIndex = keyIndex < 0 ? keyIndex+ sliceCount : keyIndex;	// handle negative keyHash result
+	return abcSlicedList_c::findSliceFirst(keyIndex, searchKey,towardsNext,resultOut);
 }
 
-abcListNode_c	*abcHashList_c::findNext(nodeKey_s *searchKey, abcListNode_c *startNode,uint8_t towardsNext)
+abcListNode_c	*abcHashList_c::findNext(nodeKey_s *searchKey, abcListNode_c *startNode,uint8_t towardsNext, abcResult_e *resultOut)
 {
-	TRACE_ENTRY("abcHashList_c");
 	int64_t  keyIndex = startNode->sliceIndex;
-	return abcSlicedList_c::findSliceNext(keyIndex, searchKey, startNode, towardsNext);
+	return abcSlicedList_c::findSliceNext(keyIndex, searchKey, startNode, towardsNext,resultOut);
 } // end abcHashList_c::findNext()
 
-abcListNode_c	*abcHashList_c::getSliceHead(int64_t sliceNum)
+abcListNode_c	*abcHashList_c::getSliceHead(int64_t sliceNum, abcResult_e *resultOut)
 { // disabled
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	if (resultOut) *resultOut = ABC_FAIL;
 	return NULL;
 }
-abcListNode_c	*abcHashList_c::getSliceTail(int64_t sliceNum) // disabled
+abcListNode_c	*abcHashList_c::getSliceTail(int64_t sliceNum, abcResult_e *resultOut) // disabled
 { // disabled
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	if (resultOut) *resultOut = ABC_FAIL;
 	return NULL;
 }
-int64_t			abcHashList_c::getSliceNodeCount(int64_t sliceNum)
+int64_t			abcHashList_c::getSliceNodeCount(int64_t sliceNum, abcResult_e *resultOut)
 { // disabled
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	if (resultOut) *resultOut = ABC_FAIL;
 	return -1;
 }
 abcResult_e		abcHashList_c::addSliceHead(int64_t sliceNum, abcListNode_c *nodeToAdd)
 { // disabled
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 abcResult_e		abcHashList_c::addSliceTail(int64_t sliceNum, abcListNode_c *nodeToAdd)
 { // disabled
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 abcResult_e		abcHashList_c::addSliceMiddle(int64_t sliceNum, abcListNode_c *nodeToAdd, abcListNode_c *nodeToFollow )
 { // disabled
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 abcListNode_c   *abcHashList_c::pullSliceHead(int64_t sliceNum)
 {
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return NULL;;
 }
 abcListNode_c   *abcHashList_c::pullSliceTail(int64_t sliceNum)
 {
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return NULL;;
 }
-abcListNode_c	*abcHashList_c::findSliceFirst(int64_t sliceNum, nodeKey_s *searchKey,uint8_t towardsNext)
+abcListNode_c	*abcHashList_c::findSliceFirst(int64_t sliceNum, nodeKey_s *searchKey,uint8_t towardsNext, abcResult_e *resultOut)
 { // disabled
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	if (resultOut) *resultOut = ABC_FAIL;
 	return NULL;
 }
-abcListNode_c	*abcHashList_c::findSliceNext(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext)
+abcListNode_c	*abcHashList_c::findSliceNext(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext, abcResult_e *resultOut)
 { // disabled
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	if (resultOut) *resultOut = ABC_FAIL;
 	return NULL;
 }
-abcListNode_c	*abcHashList_c::findSliceActual(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext) // disabled
+abcListNode_c	*abcHashList_c::findSliceActual(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext, abcResult_e *resultOut) // disabled
 { // disabled
-	TRACE_ENTRY("abcHashList_c");
-	FATAL_ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
+	if (resultOut) *resultOut = ABC_FAIL;
 	return NULL;
 }
 
@@ -1975,48 +1661,34 @@ abcResult_e abcHashList_c::add(abcListNode_c *nodeToAdd)	// MUST have the key al
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	// sanity test on the node being added
-	if (!nodeToAdd)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_PARAM_IS_NULL);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(!nodeToAdd,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
+
 	// confirm there is no owner of the new node
-	if (nodeToAdd->owner)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_OWNER_NOT_NULL);
-		return ABC_FAIL;
-	}
-	if (sliceCount == 0)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_BAD_SLICE_COUNT);
-		return ABC_FAIL;
-	}
+	CHECK_ERROR(nodeToAdd->owner != NULL,ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
+
+	// validate there are slice
+	CHECK_ERROR(sliceCount == 0,ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
 #endif
 	
 	// figure which slice to use for this hash
-	// this function must be able to fail... so we'll use the global reason code to help us
-	abcGlobalCore->setErrorReason(ABC_REASON_NONE);
-	uint64_t fullHash = nodeToAdd->calcKeyHash();
-	// TODO  this is not thread safe !!!
-	if (abcGlobalCore->getErrorReason() != ABC_REASON_NONE)
-	{
-		FATAL_ERROR(ABC_REASON_NODE_KEY_TYPE_NOT_INITIALIZED);
-		return ABC_FAIL;
-	}
+	abcResult_e res;	//  using an "out variable" for calcKeyHash
+	uint64_t fullHash = nodeToAdd->calcKeyHash(&res);
+	CHECK_ERROR(res,ABC_REASON_NODE_KEY_TYPE_NOT_INITIALIZED,ABC_FAIL);
+
 	int64_t keyIndex = (int64_t)fullHash % sliceCount;	// modulo for slice index. possibly < 0
 	keyIndex = (keyIndex < 0) ? keyIndex+sliceCount : keyIndex;  // index can't be negative
 	
 	abcListSlice_s *mySlice = &sliceArray[keyIndex];
 	if (mySlice->nodeCount >= resizeHashBucketThreshold)
 	{	
-		DEBUG_A("ABOUT TO RESIZE THE HASH TABLE\n");
-		resizeHashTable();
-		///PERROR_LTD(5,3,ABC_REASON_LIST_HASH_SLICE_OVERFULL);
-		//PERROR_FAIL(ABC_REASON_LIST_HASH_SLICE_OVERFULL);
-		//return ABC_FAIL;
+		res=resizeHashTable();
+		CHECK_ERROR(res,ABC_REASON_LIST_HASH_RESIZE_FAILED,ABC_FAIL);
 	}
 	nodeToAdd->sliceIndex = keyIndex;
-	return abcSlicedList_c::addSliceTail(keyIndex, nodeToAdd);
+	res = abcSlicedList_c::addSliceTail(keyIndex, nodeToAdd);
+	CHECK_ERROR(res,ABC_REASON_LIST_HASH_ADD_FAILED,ABC_FAIL);
+	return ABC_PASS;
+	
 } // end abcHashList_c::add(abcListNode_c *nodeToAdd)	// MUST have the key already properly initialized
 
 abcResult_e abcHashList_c::resizeHashTable()
@@ -2024,20 +1696,19 @@ abcResult_e abcHashList_c::resizeHashTable()
 	// come here to completely rebuild the hashLlist with a bigger hash array.  We'll do it by disconnecting the entire list from the anchoring
 	// data structs.... effectively re-adding all nodes to an empty (larger) list structure.
 
-	abcListNode_c *localHeadNode = headNode;
 	abcListNode_c *localTailNode = tailNode;
 	int64_t localNodeCount = nodeCount;
 	abcListSlice_s *localSliceArray = sliceArray;
 	int				localSliceCount = sliceCount;
-	DEBUG_A("Resizing params:  Threshold=%d  resizePrecentage=%d\n", resizeHashBucketThreshold,resizeHashGrowthPercentage);
+	DEBUG("Resizing params:  Threshold=%d  resizePrecentage=%d\n", resizeHashBucketThreshold,resizeHashGrowthPercentage);
 
-	// figure new array Size.
+	// figure new array Size.... we'll make it a prime number to optimize the distribution of hash keys
 	// we'll add some internal knobs
-	int64_t primeEst = ((int64_t)sliceCount * ((100LL + (int64_t)resizeHashGrowthPercentage))) / 100LL;
-	sliceCount = abcGlobalCore->findPrime(primeEst);
+	int64_t primeEst = ((int64_t)localSliceCount * ((100LL + (int64_t)resizeHashGrowthPercentage))) / 100LL;
+	sliceCount = globalCore->findPrime(primeEst);
 	sliceArray = (abcListSlice_s *)calloc(sliceCount, sizeof(abcListSlice_s));
 	resizeHashBucketThreshold += 1;
-	DEBUG_A("After resizing, new resizing params: SliceCount=%d Threshold=%d  resizePrecentage=%d\n", sliceCount, resizeHashBucketThreshold,resizeHashGrowthPercentage);
+	DEBUG("After resizing, new resizing params: SliceCount=%d Threshold=%d  resizePrecentage=%d\n", sliceCount, resizeHashBucketThreshold,resizeHashGrowthPercentage);
 
 	sliceArray = (abcListSlice_s *)calloc(sliceCount, sizeof(abcListSlice_s));
 
@@ -2058,24 +1729,12 @@ abcResult_e abcHashList_c::resizeHashTable()
 
 		// now add the freeNode.
 		abcResult_e addResult = add(freeNode);
-		if (addResult != ABC_PASS)
-		{
-			FATAL_ERROR(ABC_REASON_LIST_HASH_RESIZE_FAILED)
-			return ABC_FAIL;
-		}
+		CHECK_ERROR(addResult,ABC_REASON_LIST_HASH_RESIZE_FAILED,ABC_FAIL);
+
 		loopCount++;
 	}
-	if (loopCount != localNodeCount)
-	{
-		DEBUG_A("loopCount = %d, loopNodeCount=%lld\n",loopCount,localNodeCount);
-		FATAL_ERROR(ABC_REASON_LIST_HASH_RESIZE_FAILED)
-		return ABC_FAIL;
-	}
-	if (freeNode != localTailNode)
-	{
-		FATAL_ERROR(ABC_REASON_LIST_HASH_RESIZE_FAILED)
-		return ABC_FAIL;
-	}
+	CHECK_ERROR((loopCount != localNodeCount),ABC_REASON_LIST_HASH_RESIZE_FAILED,ABC_FAIL);
+	CHECK_ERROR((freeNode != localTailNode),ABC_REASON_LIST_HASH_RESIZE_FAILED,ABC_FAIL);
 
 	// new list should be all set.  lets dump the old slice array
 	free(localSliceArray);

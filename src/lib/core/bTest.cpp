@@ -50,10 +50,12 @@ int main(int argc, char *argv[])
 
 
 	abcListNode_c *le_clone = le->clone();
+	delete le_clone;
 
 
 	abcList_c *myList = new abcList_c("TestList");
 	abcList_c *cloneList = myList->clone();
+	delete cloneList;
 
 	fprintf(stderr," === deleting le\n");
 	delete otherNode;

@@ -168,15 +168,16 @@ class abcMemMon_c // : public abcListNode_c
 	int64_t			totalFreeCount;
 
   protected:
-	abcReason_e	errorReason;
+	abcReason_e	reason;
 
   public:
 	abcMemMon_c(const char *setName = NULL);
 	~abcMemMon_c();
 
 	// errror handling
-	void setErrorReason(abcReason_e reason);
-	abcReason_e getErrorReason();
+	void resetReason();
+	void setReason(abcReason_e reason);
+	abcReason_e getReason();
 
 
 	// public methods
@@ -196,14 +197,14 @@ class abcMemMon_c // : public abcListNode_c
 
 // the macros !!
 
-#define ABC_NEW_CLASS(a,b...)  (a *)abcGlobalMem->interceptClassNew((void *)(new a(b)),(char *)STRINGIFY(a),sizeof(a),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
-#define ABC_NEW_STRUCT(a)  (a *)abcGlobalMem->interceptStructNew((void *)(calloc(1,sizeof(a)),(char *)STRINGIFY(a),sizeof(a),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
-#define ABC_MALLOC(mSize)  abcGlobalMem->interceptClassNew((void *)(malloc(mSize),mSize,(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
-#define ABC_CALLOC(cCount, cSize)  (a *)abcGlobalMem->interceptClassNew(calloc(cCount,cSize),(cCount * cSize),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
+#define ABC_NEW_CLASS(a,b...)  (a *)globalMem->interceptClassNew((void *)(new a(b)),(char *)STRINGIFY(a),sizeof(a),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
+#define ABC_NEW_STRUCT(a)  (a *)globalMem->interceptStructNew((void *)(calloc(1,sizeof(a)),(char *)STRINGIFY(a),sizeof(a),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
+#define ABC_MALLOC(mSize)  globalMem->interceptClassNew((void *)(malloc(mSize),mSize,(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
+#define ABC_CALLOC(cCount, cSize)  globalMem->interceptClassNew(calloc(cCount,cSize),(cCount * cSize),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
 
-#define ABC_DEL_CLASS(objPtr)     abcGlobalMem->interceptDelete((void *)objPtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__); delete objPtr
-#define ABC_DEL_STRUCT(structPtr) abcGlobalMem->interceptDelete((void *)structPtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__);free (structPtr)
-#define ABC_FREE(freePtr)         abcGlobalMem->interceptDelete((void *)freePtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__);free(freePtr)
+#define ABC_DEL_CLASS(objPtr)     globalMem->interceptDelete((void *)objPtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__); delete objPtr
+#define ABC_DEL_STRUCT(structPtr) globalMem->interceptDelete((void *)structPtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__);free (structPtr)
+#define ABC_FREE(freePtr)         globalMem->interceptDelete((void *)freePtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__);free(freePtr)
 
 
 #endif //__ABC_MEMORY_H__

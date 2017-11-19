@@ -7,7 +7,7 @@ extern "C"
 #include <getopt.h>
 }
 
-#define _PRINT_DEBUG_A_
+#define _PRINT_PRINT_
 #include "abcCore.h"
 
 ////////////////////////////////////////////////////////////////////////////
@@ -69,14 +69,14 @@ void usage(int argc, char **argv)
 	}
 }
 
-//abcCore_c *abcGlobalCore = NULL; /// this is the variable for abcCore_c object
+//abcCore_c *globalCore = NULL; /// this is the variable for abcCore_c object
 
 int main(int argc, char **argv)
 {
 	abcResult_e initStatus = abcInit(1);
 	if (initStatus != ABC_PASS)
 	{
-		FATAL_ERROR_G(ABC_REASON_GLOBAL_INIT_FAILED);
+		ERROR_G(ABC_REASON_GLOBAL_INIT_FAILED);
 		exit(1);
 	}
 	srand(1);		// will be a fixed random sequence
@@ -105,18 +105,18 @@ int main(int argc, char **argv)
 		}
 	}
 
-	//abcGlobalCore->initPrimes(3600);
-	DEBUG_A(" -----\n");
-	abcGlobalCore->updatePrimes(8000);
+	//globalCore->initPrimes(3600);
+	PRINT(" -----\n");
+	globalCore->updatePrimes(8000);
 	int primeTry=200;
-	int	 myPrime = abcGlobalCore->findPrime(primeTry);
-	DEBUG_A("my prime try:%d  number is %d\n",primeTry, myPrime);
+	int	 myPrime = globalCore->findPrime(primeTry);
+	PRINT("my prime try:%d  number is %d\n",primeTry, myPrime);
 	primeTry=104729;
-	myPrime = abcGlobalCore->findPrime(primeTry);
-	DEBUG_A("my prime try:%d  number is %d\n",primeTry, myPrime);
-	abcGlobalCore->printPrimes(104000,105000);
-	//abcGlobalCore->initPrimes(10000);
-	//abcGlobalCore->initPrimes(1000000);
+	myPrime = globalCore->findPrime(primeTry);
+	PRINT("my prime try:%d  number is %d\n",primeTry, myPrime);
+	globalCore->printPrimes(104000,105000);
+	//globalCore->initPrimes(10000);
+	//globalCore->initPrimes(1000000);
 	
 	
 

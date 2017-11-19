@@ -7,7 +7,7 @@ extern "C"
 #include <getopt.h>
 }
 
-#define _PRINT_DEBUG_A_
+#define _PRINT_PRINT_
 #include "abcCore.h"
 
 /*
@@ -29,13 +29,13 @@ abcTime1m_t getTime1m()
 
 void *testFn(void *fPtr,char *objName, char *objArgs, int objSize, char *file, int line, char *function)
 {
-	DEBUG_A("Constructed a %s(%s) of size %d @ %p  src:%s:%d in %s\n",objName,objArgs,objSize,fPtr,file,line,function);
+	PRINT("Constructed a %s(%s) of size %d @ %p  src:%s:%d in %s\n",objName,objArgs,objSize,fPtr,file,line,function);
 	return fPtr;
 }
 
 void *testFb1(void *fPtr,char *file, int line, char *function)
 {
-	DEBUG_A("Destroyed %p  src:%s:%d in %s\n",fPtr,file,line,function);
+	PRINT("Destroyed %p  src:%s:%d in %s\n",fPtr,file,line,function);
 	return fPtr;
 }
 
@@ -115,7 +115,7 @@ int main(int argc, char **argv)
 	abcResult_e initStatus = abcInit(1);
 	if (initStatus != ABC_PASS)
 	{
-		FATAL_ERROR_G(ABC_REASON_GLOBAL_INIT_FAILED);
+		ERROR_G(ABC_REASON_GLOBAL_INIT_FAILED);
 		exit(1);
 	}
 	srand(1);		// will be a fixed random sequence

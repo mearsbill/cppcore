@@ -7,15 +7,47 @@ extern "C"
 #include <getopt.h>
 }
 
-#define _PRINT_DEBUG_A_
+#define _PRINT_PRINT_
 #include "abcCore.h"
+abcResult_e testThreads()
+{
+
+	abcResult_e result;
+
+	abcThread_c *myThread = ABC_NEW_CLASS(abcThread_c,"myThread");
+	if (!myThread)
+	{
+		ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
+		return ABC_FAIL;
+	}
+	result = myThread->configure();
+	if (result != ABC_PASS)
+	{
+		ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
+		return ABC_FAIL;
+	}
+	PRINT("Got past confifure\n");
+	myThread->start();
+	PRINT("Got past Start\n");
+	int go=TRUE;
+	int counter = 0;
+	while (go)
+	{
+		abcResult_e res = myThread->waitForState(ABC_THREADSTATE_STOPPED,700);
+		abcThreadState_e threadState = myThread->getThreadState();
+		fprintf(stderr,"STATUS:%d:%s  count-up %d\n",res,abcThreadStateAsStr(threadState),counter++);
+		if ((counter > 1000) || (res == ABC_PASS)) go = FALSE;
+	}
+	return ABC_PASS;
+}
+
 
 abcResult_e testMemMon()
 {
 	int i;
 
 	// test the creation  and printing of the name node
-	DEBUG_A("TESTING abcMemNameNode_c\n");
+	PRINT("TESTING abcMemNameNode_c\n");
 
 	abcMemNameNode_c *tmn = new abcMemNameNode_c(1234,"T1_MemNameNode1",2);
 	tmn->print();
@@ -34,7 +66,7 @@ abcResult_e testMemMon()
 	hList1->print(PRINT_STYLE_LIST_MEM_NAME_LIST);
 
 	// test the creation and printing of the stats node
-	DEBUG_A("TESTING abcMemStatsNode_c\n");
+	PRINT("TESTING abcMemStatsNode_c\n");
 
 	abcListNode_c *tsn = new abcMemStatsNode_c(1234,"T2_StatsNode-32",123);
 	tsn->print(PRINT_STYLE_LIST_MEM_STATS_LIST);
@@ -54,7 +86,7 @@ abcResult_e testMemMon()
 
 
 	// test the creation  and printing of the mmap node
-	DEBUG_A("TESTING abcMmapNode_c\n");
+	PRINT("TESTING abcMmapNode_c\n");
 
 	abcMmapNode_c *tmmn = new abcMmapNode_c((void *)tsn);
 	tmmn->print(PRINT_STYLE_LIST_MMAP_LIST);
@@ -70,8 +102,8 @@ abcResult_e testMemMon()
 		hList3->add(t3);
 	}
 	hList3->print(PRINT_STYLE_LIST_MMAP_LIST);
-	DEBUG_A("Done with memMon node tests\n");
-	DEBUG_A("Deleting all objects\n");
+	PRINT("Done with memMon node tests\n");
+	PRINT("Deleting all objects\n");
 	delete  tmmn;
 	delete tsn;
 	delete tmn;
@@ -80,30 +112,30 @@ abcResult_e testMemMon()
 	delete hList3;
 
 
-	DEBUG_A("TESTING abcMemMon_c\n");
+	PRINT("TESTING abcMemMon_c\n");
 	abcMemMon_c *mMon = new abcMemMon_c("testMemMon");
 	char  *j1= (char *)mMon + 0x123450;
 	void *returnPtr = mMon->interceptClassNew(j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
 	if (returnPtr != j1)
 	{
-		FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+		ERROR_G(ABC_REASON_TEST_FAILED);
 		return ABC_FAIL;
 	}
 	// should fail with same address
 	returnPtr = mMon->interceptClassNew(j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
 	if (returnPtr)
 	{
-		DEBUG_A("Should have failed but didn't\n");
+		PRINT("Should have failed but didn't\n");
 		return ABC_FAIL;
 	}
 	// check for error
-	abcReason_e reason = mMon->getErrorReason();
+	abcReason_e reason = mMon->getReason();
 	if (reason != ABC_REASON_NONE && reason != ABC_REASON_MMAP_DUPLICATE_ADDR_INVALID)
 	{
-		DEBUG_A("interceptClassNew failed reason=%d\n",reason);
+		PRINT("interceptClassNew failed reason=%d\n",reason);
 		return ABC_FAIL;
 	}
-	DEBUG_A("Resetting reason and continuing\n"); abcGlobalResetErrorReason(); mMon->setErrorReason(ABC_REASON_NONE);
+	PRINT("Resetting reason and continuing\n"); globalResetReason(); mMon->resetReason();
 
 	char *j2 = j1+1;
 	char *j3 = j2+1;
@@ -133,40 +165,40 @@ abcResult_e testHashList()
 	abcResult_e result =tList->add(t1);		// should fail... list not initialized
 	if (result != ABC_PASS)
 	{
-		FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+		ERROR_G(ABC_REASON_TEST_FAILED);
 		return(ABC_FAIL);
 	}
 
 	// initialize with 6(=>7) slices, rebuild threshold 10, 400% growth on rebuild
-	DEBUG_A("Adding Single Node to list\n");
+	PRINT("Adding Single Node to list\n");
 	result = tList->addSliceTail(6,t1);		// should fail... disabled method
 	if (result != ABC_FAIL)
 	{
-		FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+		ERROR_G(ABC_REASON_TEST_FAILED);
 		return(ABC_FAIL);
 	}
-	tList->setErrorReason(ABC_REASON_NONE); DEBUG_A("resetting expected error condition at %s:%d\n",__FILE__,__LINE__);
+	tList->resetReason(); PRINT("resetting expected error condition at %s:%d\n",__FILE__,__LINE__);
 	tList->addTail(t1);		// should fail...method defeated
 	if (result != ABC_FAIL)
 	{
-		FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+		ERROR_G(ABC_REASON_TEST_FAILED);
 		return(ABC_FAIL);
 	}
-	tList->setErrorReason(ABC_REASON_NONE); DEBUG_A("resetting expected error condition at %s:%d\n",__FILE__,__LINE__);
+	tList->resetReason(); PRINT("resetting expected error condition at %s:%d\n",__FILE__,__LINE__);
 	result = tList->add(t1);		
 	if (result != ABC_FAIL)
 	{
-		FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+		ERROR_G(ABC_REASON_TEST_FAILED);
 		return(ABC_FAIL);
 	}
-	tList->setErrorReason(ABC_REASON_NONE); DEBUG_A("resetting expected error condition at %s:%d\n",__FILE__,__LINE__);
+	tList->resetReason(); PRINT("resetting expected error condition at %s:%d\n",__FILE__,__LINE__);
 	tList->abcSlicedList_c::print();
 
 	int i;;
 	for (i=0;i<100;i++)
 	{
 		testNode_c *t2= new testNode_c  ();
-		testNode_c *fn = NULL;
+		//testNode_c *fn = NULL;
 		char name[32];
 		snprintf(name,32,"v%d",i);
 		t2->setValue(i);
@@ -175,7 +207,7 @@ abcResult_e testHashList()
 		result = tList->add(t2);
 		if (result != ABC_PASS)
 		{
-			FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+			ERROR_G(ABC_REASON_TEST_FAILED);
 			return(ABC_FAIL);
 		}
 	} // finished building list
@@ -183,7 +215,7 @@ abcResult_e testHashList()
 	tList->abcSlicedList_c::print();
 
 
-	DEBUG_A("testing find\n");
+	PRINT("testing find\n");
 	for (i=0;i<31;i+=2)
 	{
 		nodeKey_s sKey;
@@ -198,11 +230,11 @@ abcResult_e testHashList()
 	}
 
 #if 0
-	DEBUG_A("printing Test List\n");
+	PRINT("printing Test List\n");
 	tList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
 #endif
 
-	DEBUG_A("Cloning hashedList\n");
+	PRINT("Cloning hashedList\n");
 	abcHashList_c *cList = (abcHashList_c *)tList->clone();
 	if (!cList)
 	{
@@ -210,10 +242,10 @@ abcResult_e testHashList()
 		return(ABC_FAIL);
 	}
 
-	DEBUG_A("Deleting original\n");
+	PRINT("Deleting original\n");
 	delete tList;
 
-	DEBUG_A("testing find on cloned list\n");
+	PRINT("testing find on cloned list\n");
 	for (i=0;i<31;i+=2)
 	{
 		nodeKey_s sKey;
@@ -228,11 +260,11 @@ abcResult_e testHashList()
 	}
 
 	//
-	DEBUG_A("Test Pull Head\n");
+	PRINT("Test Pull Head\n");
 
 
 
-	abcListNode_c *dn;
+	//abcListNode_c *dn;
 	// pull 16 nodes [ slice 2 + 1 from slice 0 ]
 	for (i=0;i<14;i++)
 	{
@@ -249,14 +281,14 @@ abcResult_e testHashList()
 	cList->add(t1);
 
 #if 0
-	DEBUG_A("printing cloned Hash list\n");
+	PRINT("printing cloned Hash list\n");
 	cList->abcSlicedList_c::print();
 #endif
 
-	DEBUG_A("Deleting the clone\n");
+	PRINT("Deleting the clone\n");
 	delete cList;
 
-	DEBUG_A("Done with HashList test\n");
+	PRINT("Done with HashList test\n");
 	return ABC_PASS;
 }
 abcResult_e testSlicedList()
@@ -270,25 +302,25 @@ abcResult_e testSlicedList()
 	abcResult_e result =tList->addSliceTail(1,t1);		// should fail... list not initialized
 	if (result != ABC_FAIL)
 	{
-		FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+		ERROR_G(ABC_REASON_TEST_FAILED);
 		return(ABC_FAIL);
 	}
-	tList->setErrorReason(ABC_REASON_NONE); DEBUG_A("resetting error condition\n");
+	tList->resetReason(); PRINT("resetting error condition\n");
 	tList->init(6);
 	tList->addSliceTail(6,t1);		// should fail... slice# out of range
 	if (result != ABC_FAIL)
 	{
-		FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+		ERROR_G(ABC_REASON_TEST_FAILED);
 		return(ABC_FAIL);
 	}
-	tList->setErrorReason(ABC_REASON_NONE); DEBUG_A("resetting error condition\n");
+	tList->resetReason(); PRINT("resetting error condition\n");
 	tList->addTail(t1);		// should fail...method defeated
 	if (result != ABC_FAIL)
 	{
-		FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+		ERROR_G(ABC_REASON_TEST_FAILED);
 		return(ABC_FAIL);
 	}
-	tList->setErrorReason(ABC_REASON_NONE); DEBUG_A("resetting error condition\n");
+	tList->resetReason(); PRINT("resetting error condition\n");
 	tList->addSliceTail(3,t1);		
 
 	// fix up t1 for later searching
@@ -330,25 +362,25 @@ abcResult_e testSlicedList()
 		}
 	} // finished building list
 
-	DEBUG_A("printing Test List\n");
+	PRINT("printing Test List\n");
 	tList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
 
 	abcSlicedList_c *t2List = (abcSlicedList_c *)tList->clone();
 	if (t2List == NULL)
 	{
-		FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+		ERROR_G(ABC_REASON_TEST_FAILED);
 		return(ABC_FAIL);
 	}
 	t2List->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
 
-	DEBUG_A("Deleting Test SlicedList\n");
+	PRINT("Deleting Test SlicedList\n");
 	delete tList;
 
 	// test remove some
 	// int sliceMap[30] = {0,1,1,1,3,3,3,3,5,5,5,4,3,2,1,0,0,2,4,5,5,2,3,1,4,2,4,4,0,2};
 	// slice counts =>  0:4  1:5  2:6  3:7  4:4 5:5
 
-	abcListNode_c *dn;
+	//abcListNode_c *dn;
 	// remove slice 3
 	for (i=0;i<7;i++)
 	{
@@ -364,13 +396,13 @@ abcResult_e testSlicedList()
 	testNode_c *t0 = (testNode_c *)t2List->getSliceHead(5);
 	if (!t1)
 	{
-		FATAL_ERROR_G(ABC_REASON_NODE_PARAM_IS_NULL);
+		ERROR_G(ABC_REASON_NODE_PARAM_IS_NULL);
 		exit(1);
 	}
-	DEBUG_A("Deleting some nodes..... slice 3 nodes 2 & 3\n");
+	PRINT("Deleting some nodes..... slice 3 nodes 2 & 3\n");
 	t1 = (testNode_c *)t0->next();	// t1 sb 2 of 5 
 	testNode_c *t2 = (testNode_c *)t1->next();	// t2 sb 3 of 5
-	DEBUG_A("read... go!\n");
+	PRINT("read... go!\n");
 	t2List->remove(t1);
 	t2List->remove(t2);
 	delete t1;
@@ -382,88 +414,88 @@ abcResult_e testSlicedList()
 	// lets fail first, then find first on list(13) then 3rd as next
 	nodeKey_s testKey;
 	nodeKey_setInt(&testKey,13);
-	DEBUG_A("looking for 13 and expecting to fail\n");
+	PRINT("looking for 13 and expecting to fail\n");
 	t1 = (testNode_c *)t2List->findSliceFirst(4,&testKey);
 	if (t1)
 	{
-		DEBUG_A("Wasn't upposed to find anything\n");
+		PRINT("Wasn't upposed to find anything\n");
 		exit(1);
 	}
-	DEBUG_A("Failed as expected\n");
-	DEBUG_A("looking for 24 and expecting to find\n");
+	PRINT("Failed as expected\n");
+	PRINT("looking for 24 and expecting to find\n");
 	nodeKey_setInt(&testKey,24); // fail on first node of slice 2
 	t1 = (testNode_c *)t2List->findSliceFirst(4,&testKey);
 	t1->print();
 	if (!t1)
 	{
-		DEBUG_A("Wasn't supposed to fail\n");
+		PRINT("Wasn't supposed to fail\n");
 		exit(1);
 	}
-	DEBUG_A("looking for 26 and expecting to succeed\n");
+	PRINT("looking for 26 and expecting to succeed\n");
 	nodeKey_setInt(&testKey,26); // fail on first node of slice 2
 	t1 = (testNode_c *)t2List->findSliceNext(4,&testKey,t1);
 	if (!t1)
 	{
-		DEBUG_A("Wasn't supposed to fail\n");
+		PRINT("Wasn't supposed to fail\n");
 		exit(1);
 	}
-	DEBUG_A("passed as expected\n");
+	PRINT("passed as expected\n");
 	t1->print();
 
-	DEBUG_A("Now testing searching backwards\n");
-	DEBUG_A("looking for 19 and expecting to fail\n");
+	PRINT("Now testing searching backwards\n");
+	PRINT("looking for 19 and expecting to fail\n");
 	nodeKey_setInt(&testKey,19); 
 	t1 = (testNode_c *)t2List->findSliceFirst(4,&testKey,FALSE/*backwards*/);
 	if (t1)
 	{
-		DEBUG_A("Wasn't upposed to find anything\n");
+		PRINT("Wasn't upposed to find anything\n");
 		exit(1);
 	}
-	DEBUG_A("Failed as expected\n");
-	DEBUG_A("looking for 27 and expecting to find\n");
+	PRINT("Failed as expected\n");
+	PRINT("looking for 27 and expecting to find\n");
 	testKey.value.intgr = 27; // fail on first node of slice 2
 	t1 = (testNode_c *)t2List->findSliceFirst(4,&testKey,FALSE);
 	if (!t1)
 	{
-		DEBUG_A("Wasn't supposed to fail\n");
+		PRINT("Wasn't supposed to fail\n");
 		exit(1);
 	}
 	t1->print();
-	DEBUG_A("looking for 27 again and  expecting to fail\n");
+	PRINT("looking for 27 again and  expecting to fail\n");
 	nodeKey_setInt(&testKey,27); 
 	testNode_c *t1a = (testNode_c *)t2List->findSliceNext(4,&testKey,t1,FALSE);
 	if (t1a)
 	{
-		DEBUG_A("Didn't expect to find\n");
+		PRINT("Didn't expect to find\n");
 		exit(1);
 	}
-	DEBUG_A("Failed as expected\n");
-	DEBUG_A("looking for 18 and expecting to succeed\n");
+	PRINT("Failed as expected\n");
+	PRINT("looking for 18 and expecting to succeed\n");
 	nodeKey_setInt(&testKey,18); 
 	t1 = (testNode_c *)t2List->findSliceNext(4,&testKey,t1,FALSE);
 	if (!t1)
 	{
-		DEBUG_A("Wasn't supposed to fail\n");
+		PRINT("Wasn't supposed to fail\n");
 		exit(1);
 	}
-	DEBUG_A("passed as expected\n");
+	PRINT("passed as expected\n");
 	t1->print();
 
-	DEBUG_A("looking for 24 and expecting to succeed\n");
+	PRINT("looking for 24 and expecting to succeed\n");
 	testKey.value.intgr = 24; // fail on first node of slice 2
 	t1 = (testNode_c *)t2List->findSliceNext(4,&testKey,t1,FALSE);
 	if (!t1)
 	{
-		DEBUG_A("Wasn't supposed to fail\n");
+		PRINT("Wasn't supposed to fail\n");
 		exit(1);
 	}
-	DEBUG_A("passed as expected\n");
+	PRINT("passed as expected\n");
 	t1->print();
 
 
 
 
-	DEBUG_A("\n\nDone testing slice find\n");
+	PRINT("\n\nDone testing slice find\n");
 
 
 
@@ -474,7 +506,7 @@ abcResult_e testSlicedList()
 
 
 	t2List->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
-	DEBUG_A("Deleting Clone SlicedList\n");
+	PRINT("Deleting Clone SlicedList\n");
 	delete t2List;
 
 
@@ -485,10 +517,10 @@ abcResult_e testSlicedList()
 		tList->addSliceTail(slice+1,t2);		// should fail...method defeated
 		if (result != ABC_FAIL)
 		{
-			FATAL_ERROR_G(ABC_REASON_TEST_FAILED);
+			ERROR_G(ABC_REASON_TEST_FAILED);
 			return(ABC_FAIL);
 		}
-		tList->setErrorReason(ABC_REASON_NONE); DEBUG_A("resetting error condition\n");
+		tList->setErrorReason(ABC_REASON_NONE); PRINT("resetting error condition\n");
 	}
 	#endif
 
@@ -497,42 +529,42 @@ abcResult_e testSlicedList()
 
 abcResult_e testPrimes()
 {
-	// primes self init and self adjust by initing abcGlobalCore
+	// primes self init and self adjust by initing globalCore
 	// prime #500 => 3571
 	// prime #1000 => 7919
 	// prime #10000 => 104730
-	abcGlobalCore->printPrimes(1,20);
-	abcGlobalCore->updatePrimes(8000);
+	globalCore->printPrimes(1,20);
+	globalCore->updatePrimes(8000);
 
 	int primeTry=200;
-	int  myPrime = abcGlobalCore->findPrime(primeTry);
-	DEBUG_A("my prime try:%d  number is %d\n",primeTry, myPrime);
+	int  myPrime = globalCore->findPrime(primeTry);
+	PRINT("my prime try:%d  number is %d\n",primeTry, myPrime);
 	primeTry=104729;
-	myPrime = abcGlobalCore->findPrime(primeTry);
-	DEBUG_A("my prime try:%d  number is %d\n",primeTry, myPrime);
-	abcGlobalCore->printPrimes(104700,104750);
-	abcGlobalCore->printPrimes(1,20);
-	//abcGlobalCore->initPrimes(10000);
-	//abcGlobalCore->initPrimes(1000000);
+	myPrime = globalCore->findPrime(primeTry);
+	PRINT("my prime try:%d  number is %d\n",primeTry, myPrime);
+	globalCore->printPrimes(104700,104750);
+	globalCore->printPrimes(1,20);
+	//globalCore->initPrimes(10000);
+	//globalCore->initPrimes(1000000);
 	return ABC_PASS;
 }
 abcResult_e testCrc()
 {
-    abcGlobalCore->generateCrc32Table();
-    abcGlobalCore->generateCrc64Table();
+    globalCore->generateCrc32Table();
+    globalCore->generateCrc64Table();
 
-	DEBUG_A("Testing CRC32\n");
+	PRINT("Testing CRC32\n");
 	uint8_t  *t9=(uint8_t *)"The quick brown fox jumps over the lazy dog";
 	uint32_t ref1=0x414FA339;
 	int t9l= strlen((char *)t9);
-	uint32_t r1 = abcGlobalCore->computeCrc32(0,t9,t9l);
-	DEBUG_A("CRC32..... seed 0, string=\"%s\" crc32=%08x ref=%08x diff=%d\n",t9,r1,ref1,r1-ref1);
+	uint32_t r1 = globalCore->computeCrc32(0,t9,t9l);
+	PRINT("CRC32..... seed 0, string=\"%s\" crc32=%08x ref=%08x diff=%d\n",t9,r1,ref1,r1-ref1);
 
 	t9=(uint8_t *)"123456789";
 	t9l= strlen((char *)t9);
-	r1 = abcGlobalCore->computeCrc32(0,t9,t9l);
+	r1 = globalCore->computeCrc32(0,t9,t9l);
 	ref1=0xCBF43926;
-	DEBUG_A("CRC32..... seed 0, string=\"%s\" crc32=%08x ref=%08x diff=%d\n",t9,r1,ref1,r1-ref1);
+	PRINT("CRC32..... seed 0, string=\"%s\" crc32=%08x ref=%08x diff=%d\n",t9,r1,ref1,r1-ref1);
 
 
     uint64_t  result;
@@ -540,19 +572,19 @@ abcResult_e testCrc()
 
 	unsigned char t1[8]; t1[0]=0x80;
     printf("taking CRC64 of \"\x80\" (should be 0xC96C5795D7870F42)\n");
-    result = abcGlobalCore->computeCrc64(t1, 1);
+    result = globalCore->computeCrc64(t1, 1);
 	printf("result0: %016llx\n", result);
 
     printf("taking CRC64 of \"\\xDE\\xAD\\xBE\\xEF\" (should be FC232C18806871AF)\n");
-    result = abcGlobalCore->computeCrc64((PBYTE)"\xDE\xAD\xBE\xEF", 4);
+    result = globalCore->computeCrc64((PBYTE)"\xDE\xAD\xBE\xEF", 4);
     printf("result: %016llxX\n", result);
 
     printf("taking CRC64 of \"99eb96dd94c88e975b585d2f28785e36\" (should be DB7AC38F63413C4E)\n");
-    result = abcGlobalCore->computeCrc64((PBYTE)"\x99\xEB\x96\xDD\x94\xC8\x8E\x97\x5B\x58\x5D\x2F\x28\x78\x5E\x36", 16);
+    result = globalCore->computeCrc64((PBYTE)"\x99\xEB\x96\xDD\x94\xC8\x8E\x97\x5B\x58\x5D\x2F\x28\x78\x5E\x36", 16);
     printf("result: %016llx\n", result);
 
     printf("taking CRC64 of \"\\DE\\xAD\" (should be 44277F18417C45A5\n");
-    result = abcGlobalCore->computeCrc64((PBYTE)"\xDE\xAD", 2);
+    result = globalCore->computeCrc64((PBYTE)"\xDE\xAD", 2);
     printf("result: %016llx\n", result);
 
 	return ABC_PASS;
@@ -582,7 +614,7 @@ abcResult_e timeSortedListTest(int nodeCount, int loopCount)
 	}
 	abcTime1m_t initComplete1m = getTime1m();
 	abcTime1m_t setupTime1m = initComplete1m - setupStartTime1m;
-	DEBUG_A("setup time: %6.2f milliseconds for %d nodes or (%7.6f uSec/node) \n", (double)setupTime1m/1000.0,nodeCount, ((double)setupTime1m/(double)nodeCount));
+	PRINT("setup time: %6.2f milliseconds for %d nodes or (%7.6f uSec/node) \n", (double)setupTime1m/1000.0,nodeCount, ((double)setupTime1m/(double)nodeCount));
 
 
 	int64_t runningTail = nodeCount;
@@ -594,7 +626,7 @@ abcResult_e timeSortedListTest(int nodeCount, int loopCount)
 		timeNode = (testNode_c *)testList->pullHead();
 		if (!timeNode)
 		{
-			FATAL_ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
+			ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
 			exit(1);
 		}
 
@@ -607,7 +639,7 @@ abcResult_e timeSortedListTest(int nodeCount, int loopCount)
 
 	abcTime1m_t testStopTime1m = getTime1m();
 	abcTime1m_t runTime1m = testStopTime1m - testStartTime1m;
-	DEBUG_A("Run time: %6.2f milliseconds for %d loops or (%7.6f uSec/sortedAdd) \n", (double)runTime1m/1000.0,loopCount,((double)runTime1m/(double)loopCount));
+	PRINT("Run time: %6.2f milliseconds for %d loops or (%7.6f uSec/sortedAdd) \n", (double)runTime1m/1000.0,loopCount,((double)runTime1m/(double)loopCount));
 
 	delete testList;	// also deletes all listNodes
 
@@ -616,7 +648,7 @@ abcResult_e timeSortedListTest(int nodeCount, int loopCount)
 
 abcResult_e listTests()
 {
-	DEBUG_A("TESTING LISTS\n");
+	PRINT("TESTING LISTS\n");
 
 	// make a new list
 	abcList_c *tList = new abcList_c("testList");
@@ -663,7 +695,7 @@ abcResult_e listTests()
 		if ( addTailResult == ABC_FAIL) // don't expect an error
 		{
 			fprintf(stderr,"expected result ABC_PASS but got %s\n",abcResultAsStr(addTailResult));
-			FATAL_ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
+			ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
 			exit(1);
 		}
 		if (i == 0)
@@ -672,40 +704,40 @@ abcResult_e listTests()
 			if ( aResult != ABC_FAIL )	// had better fail !
 			{
 				fprintf(stderr,"expected result ABC_FAIL but got %s\n",abcResultAsStr(aResult));
-				FATAL_ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
+				ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
 				exit(1);
 			}
-			DEBUG_A("No problem... previous error  expected... clearing error condition at %s:%d\n",__FILE__,__LINE__);
-			tList->setErrorReason(ABC_REASON_NONE);	// reset the error we intentionally caused
+			PRINT("No problem... previous error  expected... clearing error condition at %s:%d\n",__FILE__,__LINE__);
+			tList->resetReason();	// reset the error we intentionally caused
 		}
 	}
-	DEBUG_A("generating list print\n");
+	PRINT("generating list print\n");
 	//tList->print(1,1);
 
-	DEBUG_A("Cloning the list\n");
+	PRINT("Cloning the list\n");
 	abcList_c *cloneList = tList->clone();
 
-	DEBUG_A("Printing the Clone \n");
+	PRINT("Printing the Clone \n");
 	cloneList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
 
 	// test the stateless calls
 	if (tList->getHead() !=  tList->head())
 	{
-		DEBUG_A("FAIL getHead != head \n");
+		PRINT("FAIL getHead != head \n");
 		exit(1);
 	}
 
 	if (tList->getTail() !=  tList->tail())
 	{
-		DEBUG_A("FAIL getTail != tail \n");
+		PRINT("FAIL getTail != tail \n");
 		exit(1);
 	}
 
-	DEBUG_A("deleting the clone and emptying the testList\n");
+	PRINT("deleting the clone and emptying the testList\n");
 	delete cloneList;
 	tList->empty();
 
-	DEBUG_A("preparing list for find test\n");
+	PRINT("preparing list for find test\n");
 	int j=0;
 	for (i=0;i<18;i++)
 	{
@@ -725,14 +757,14 @@ abcResult_e listTests()
 		}
 	}
 
-	DEBUG_A("Building search key\n");
+	PRINT("Building search key\n");
 	nodeKey_s sKey;
 	sKey.type = KEYTYPE_INT;
 	sKey.value.intgr = 5;
 	testNode_c *fn = (testNode_c *)tList->findFirst(&sKey,1/*towardsNext*/);
 	while (fn)
 	{
-		DEBUG_A("ADDING %d in the middle\n",i);
+		PRINT("ADDING %d in the middle\n",i);
 		testNode_c *tt = new testNode_c();
 		tt->setValue(i);
 		tt->setKeyInt(j);
@@ -742,7 +774,7 @@ abcResult_e listTests()
 		abcResult_e  resultAm = tList->addMiddle(tt,fn);
 		if (resultAm != ABC_FAIL)
 		{
-			FATAL_ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
+			ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
 			exit(1);
 		}
 */
@@ -753,9 +785,9 @@ abcResult_e listTests()
 
 	tList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
 
-	DEBUG_A("Testing find/findNext\n");
+	PRINT("Testing find/findNext\n");
 
-	DEBUG_A("scanning fowards\n");
+	PRINT("scanning fowards\n");
 	sKey.value.intgr = 3;
 	fn = (testNode_c *)tList->findFirst(&sKey,1/*towardsNext*/);
 	while (fn)
@@ -763,7 +795,7 @@ abcResult_e listTests()
 		fn->print();
 		fn = (testNode_c *)tList->findNext(&sKey,fn);
 	}
-	DEBUG_A("scanning backwards\n");
+	PRINT("scanning backwards\n");
 	fn = (testNode_c *)tList->findFirst(&sKey,0/*towardsNext*/);
 	while (fn)
 	{
@@ -771,12 +803,12 @@ abcResult_e listTests()
 		fn = (testNode_c *)tList->findNext(&sKey,fn,0);
 	}
 
-	DEBUG_A("BEFORE EMPTY\n");
+	PRINT("BEFORE EMPTY\n");
 	tList->empty();
-	DEBUG_A("AFTER EMPTY\n");
+	PRINT("AFTER EMPTY\n");
 
 	int valueMap[25]={1,3,5,2,4,6,9,8,7,9,24,23,22,9,20,10,11,12,13,15,14,16,17,19,18};
-	DEBUG_A("TESTING Sorted add\n");
+	PRINT("TESTING Sorted add\n");
 	testNode_c *tn;
 	for (i=0;i<25;i++)
 	{
@@ -790,7 +822,7 @@ abcResult_e listTests()
 	tList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
 
 	
-	DEBUG_A("DONE TESTING LISTS\n");
+	PRINT("DONE TESTING LISTS\n");
 	return ABC_PASS;
 }
 
@@ -798,39 +830,39 @@ abcResult_e listTests()
 // abcNode tests
 abcResult_e nodeTests()
 {
-	DEBUG_A("TESTING NODES\n");
-	DEBUG_A("building a ListNode\n");
+	PRINT("TESTING NODES\n");
+	PRINT("building a ListNode\n");
 	abcListNode_c *le = new abcListNode_c();
-	DEBUG_A("Cloning  a ListNode\n");
+	PRINT("Cloning  a ListNode\n");
 	abcListNode_c *cle = le->clone();
-	DEBUG_A("destroying a ListNode\n");
+	PRINT("destroying a ListNode\n");
 	delete le;
-	//delete cle;
+	delete cle;
 
-	DEBUG_A("building a testNode\n");
+	PRINT("building a testNode\n");
 	testNode_c *tn = new testNode_c();
 	tn->setName("testNodeName");
 	tn->setValue(123);
-	DEBUG_A("Cloning  a testNode\n");
+	PRINT("Cloning  a testNode\n");
 	testNode_c *tnc = (testNode_c *)tn->clone();
-	DEBUG_A("Cloning  a testNode\n");
-	DEBUG_A("Comparing original with clone\n");
-	DEBUG_A("destroying a ListNode\n");
+	PRINT("Cloning  a testNode\n");
+	PRINT("Comparing original with clone\n");
+	PRINT("destroying a ListNode\n");
 	delete tn;
 	delete tnc;
-	DEBUG_A("FINISHED TESTING NODES\n");
+	PRINT("FINISHED TESTING NODES\n");
 	return ABC_PASS;
 }
 
 /*
 abcResult_e nodeTests()
 {
-	DEBUG_A("TESTING NODES\n");
-	DEBUG_A("building a ListNode\n");
+	PRINT("TESTING NODES\n");
+	PRINT("building a ListNode\n");
 	abcListNode_c *le = new abcListNode_c();
-	DEBUG_A("destroying a ListNode\n");
+	PRINT("destroying a ListNode\n");
 	delete le;
-	DEBUG_A("FINISHED TESTING NODES\n");
+	PRINT("FINISHED TESTING NODES\n");
 	return ABC_PASS;
 }
 */
@@ -962,7 +994,7 @@ int main(int argc, char **argv)
 	abcResult_e initStatus = abcInit(1);
 	if (initStatus != ABC_PASS)
 	{
-		FATAL_ERROR_G(ABC_REASON_GLOBAL_INIT_FAILED);
+		ERROR_G(ABC_REASON_GLOBAL_INIT_FAILED);
 		exit(1);
 	}
 	srand(1);		// will be a fixed random sequence
@@ -997,43 +1029,15 @@ int main(int argc, char **argv)
 	printf("%s cmp %s = %d\n",aStr,bStr,strcmp(aStr,bStr));
 	exit(1);
 */
-	abcResult_e result;
+//	abcResult_e res = testThreads();
 
-	abcThread_c *myThread = ABC_NEW_CLASS(abcThread_c,"myThread");
-	if (!myThread)
-	{
-		FATAL_ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
-		return ABC_FAIL;
-	}
-	result = myThread->configure();
-	if (result != ABC_PASS)
-	{
-		FATAL_ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
-		return ABC_FAIL;
-	}
-	DEBUG_A("Got past condifure\n");
-	myThread->start();
-	DEBUG_A("Got past Start\n");
-	int go=TRUE;
-	int counter = 0;
-	while (go)
-	{
-		abcResult_e res = myThread->waitForState(ABC_THREADSTATE_STOPPED,700);
-		abcThreadState_e threadState = myThread->getThreadState();
-		fprintf(stderr,"STATUS:%d:%s  count-up %d\n",res,abcThreadStateAsStr(threadState),counter++);
-		if ((counter > 1000) || (res == ABC_PASS)) go = FALSE;
-	}
-
-/*
-
-
-
-	testNode_c *tn = ABC_NEW_CLASS(testNode_c,);
-	abcGlobalMem->printMemoryStats();
-	ABC_DEL_CLASS(tn);
-	abcGlobalMem->printMemoryStats();
-
-*/
+	char testStr[128];
+	char *joe = abcStrings_c::snprintf_eng(testStr,128,(char *)"%6.3f",-1004.04e-6,(char *)"Bytes");
+	fprintf(stderr,"the string is %s\n",joe);
+	joe = abcStrings_c::snprintf_eng(testStr,128,(char *)"%6.3f",-1004.04e-20,(char *)"Bytes",1);
+	fprintf(stderr,"the string is %s\n",joe);
+	joe = abcStrings_c::snprintf_eng(testStr,128,(char *)"%6.3f",-1004.04e+20,(char *)"Bytes");
+	fprintf(stderr,"the string is %s\n",joe);
 
 
 	abcResult_e shutdownResult = abcShutdown(1);

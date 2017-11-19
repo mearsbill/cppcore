@@ -17,6 +17,14 @@ class abcList_c : public abcListNode_c	// a list is also a listNode
 {
   private:
 
+
+
+  protected:
+	char			*name;
+	abcListNode_c *headNode;
+	abcListNode_c *tailNode;
+	abcListNode_c *currNode;
+
   	// storage for locking
   	uint8_t				lockingEnabled;
 	uint8_t				writerIsWaiting;
@@ -27,15 +35,7 @@ class abcList_c : public abcListNode_c	// a list is also a listNode
 	pthread_cond_t      writerCondVar;		// writer signals this var.  Reader waits on it
 	
 
-
-  protected:
-	char			*name;
-	abcListNode_c *headNode;
-	abcListNode_c *tailNode;
-	abcListNode_c *currNode;
-
 	int64_t		nodeCount;
-	abcReason_e	errorReason;
 	uint8_t		isSorted;		// safe flag to stop mixing usage
 
 	abcResult_e		lock();		// lock the mutex
@@ -67,10 +67,6 @@ class abcList_c : public abcListNode_c	// a list is also a listNode
 	abcResult_e	writeLock();
 	abcResult_e	writeLockNoWait();
 	abcResult_e	writeRelease();
-
-	// Error handling stuff & print stuff
-	void setErrorReason(abcReason_e reason);
-	abcReason_e getErrorReason();
 
     virtual char        *getObjType();  // the class name
     virtual char        *getObjName();  // the instance name when available
@@ -106,9 +102,9 @@ class abcList_c : public abcListNode_c	// a list is also a listNode
 	virtual abcResult_e 	addSorted(abcListNode_c *nodeToAdd, const uint8_t towardsNext ); // control start positonal for search (head for towardsNext, tail for !towardsNext)
 
 	// search stateless only
-	virtual abcListNode_c	*findFirst(nodeKey_s *searchKey,uint8_t towardsNext=TRUE);	  					 	// towardsNext controls search direction   towardsNext==1 starts from head.  ==0 starts from tail
-	virtual abcListNode_c	*findNext(nodeKey_s *searchKey,abcListNode_c *startNode,  uint8_t towardsNext=TRUE);	// doesn't re-examine startnode... move right(next) if towardsNext==1.
-	virtual abcListNode_c	*findActual(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext);	// doesn't re-examine startnode... move right(next) if towardsNext==1.
+	virtual abcListNode_c	*findFirst(nodeKey_s *searchKey,uint8_t towardsNext=TRUE, abcResult_e *resultOut=NULL);	  					 	// towardsNext controls search direction   towardsNext==1 starts from head.  ==0 starts from tail
+	virtual abcListNode_c	*findNext(nodeKey_s *searchKey,abcListNode_c *startNode,  uint8_t towardsNext=TRUE, abcResult_e *resultOut=NULL);	// doesn't re-examine startnode... move right(next) if towardsNext==1.
+	virtual abcListNode_c	*findActual(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext, abcResult_e *resultOut=NULL);	// doesn't re-examine startnode... move right(next) if towardsNext==1.
 
 	// full list operations
 	virtual abcResult_e empty();
@@ -194,18 +190,18 @@ class abcSlicedList_c  : public abcList_c
 	// simple linear sorting =  can't work correctly
 	virtual abcResult_e 	addSorted(abcListNode_c *nodeToAdd, const uint8_t towardsNext ); 		// overloaded to fail
 
-	// search stateless only - works directly from the baseclass
-	//virtual abcListNode_c	*findFirst(nodeKey_s *searchKey,uint8_t towardsNext);	  					 		// uses abcList_c findFirst
-	//virtual abcListNode_c	*findNext(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext);		// uses abcList_c findNext
-	//virtual abcListNode_c	*findActual(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext);	// uses abcList_c findActual
+	// search stateless only - works directly from the baseclass ... even if it makes no sense !!
+	//virtual abcListNode_c	*findFirst(nodeKey_s *searchKey,uint8_t towardsNext, abcResult_e *resultOut=NULL);	  					 		// uses abcList_c findFirst
+	//virtual abcListNode_c	*findNext(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext, abcResult_e *resultOut=NULL);	// uses abcList_c findNext
+	//virtual abcListNode_c	*findActual(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext, abcResult_e *resultOut=NULL);	// uses abcList_c findActual
 
 
 	// *******************************************  
 	// slice versions of the basic methods
 
-	virtual abcListNode_c	*getSliceHead(int64_t sliceNum);								
-	virtual abcListNode_c	*getSliceTail(int64_t sliceNum);
-	virtual int64_t			getSliceNodeCount(int64_t sliceNum);
+	virtual abcListNode_c	*getSliceHead(int64_t sliceNum, abcResult_e *resultOut = NULL);								
+	virtual abcListNode_c	*getSliceTail(int64_t sliceNum, abcResult_e *resultOut = NULL);
+	virtual int64_t			getSliceNodeCount(int64_t sliceNum, abcResult_e *resultOut = NULL);
 
 	virtual abcResult_e		addSliceHead(int64_t sliceNum, abcListNode_c *nodeToAdd);									 // add a new node at head and update head.  Do not update current.
 	virtual abcResult_e		addSliceTail(int64_t sliceNum, abcListNode_c *nodeToAdd);									 // add a new node at tail and update tail.  Do not update currenty
@@ -214,9 +210,9 @@ class abcSlicedList_c  : public abcList_c
 	virtual abcListNode_c	*pullSliceTail(int64_t sliceNum);															 // getSliceHead and if not null remove and return it;
 	
 
-	virtual abcListNode_c	*findSliceFirst(int64_t sliceNum, nodeKey_s *searchKey,uint8_t towardsNext=TRUE);	  					 	// towardsNext controls search direction   towardsNext==1 starts from head.  ==0 starts from tail
-	virtual abcListNode_c	*findSliceNext(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext=TRUE);	// doesn't re-examine startnode... move right(next) if towardsNext==1.
-	virtual abcListNode_c	*findSliceActual(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext=TRUE);	// doesn't re-examine startnode... move right(next) if towardsNext==1.
+	virtual abcListNode_c	*findSliceFirst(int64_t sliceNum, nodeKey_s *searchKey,uint8_t towardsNext=TRUE, abcResult_e *resultOut=NULL);	  					 	// towardsNext controls search direction   towardsNext==1 starts from head.  ==0 starts from tail
+	virtual abcListNode_c	*findSliceNext(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext=TRUE, abcResult_e *resultOut=NULL);	// doesn't re-examine startnode... move right(next) if towardsNext==1.
+	virtual abcListNode_c	*findSliceActual(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext=TRUE, abcResult_e *resultOut=NULL);	// doesn't re-examine startnode... move right(next) if towardsNext==1.
 }; // end abcSlicedList_c definition
 
 //////////////////     ======================       /////////////////////      ========================     /////////////////////////
@@ -286,16 +282,16 @@ class abcHashList_c  : public abcSlicedList_c	// a list is also a listNode
 	//virtual abcResult_e 	addSorted(abcListNode_c *nodeToAdd, const uint8_t towardsNext ); 		// overloaded to fail in abcSlicedList_c
 
 	// search stateless only - works directly from the baseclass
-	virtual abcListNode_c	*findFirst(nodeKey_s *searchKey,uint8_t towardsNext=TRUE);	  					 		// implemented using abcSlicedList_c::findSliceFirst
-	virtual abcListNode_c	*findNext(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext=TRUE);	// implemented using abcSlicedList_c::findSliceNext
-	//virtual abcListNode_c	*findActual(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext=TRUE);	// directly use      abcSlicedList_c::findSliceActual
+	virtual abcListNode_c	*findFirst(nodeKey_s *searchKey,uint8_t towardsNext=TRUE, abcResult_e *resultOut=NULL);	  					 		// implemented using abcSlicedList_c::findSliceFirst
+	virtual abcListNode_c	*findNext(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext=TRUE, abcResult_e *resultOut=NULL);	// implemented using abcSlicedList_c::findSliceNext
+	//virtual abcListNode_c	*findActual(nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext=TRUE, abcResult_e *resultOut=NULL);	// directly use      abcSlicedList_c::findSliceActual
 
 	// *******************************************  
 	// slice versions of the basic methods
 
-	virtual abcListNode_c	*getSliceHead(int64_t sliceNum);				// overloaded to fail
-	virtual abcListNode_c	*getSliceTail(int64_t sliceNum);				// overloaded to fail
-	virtual int64_t			getSliceNodeCount(int64_t sliceNum);			// overloaded to fail
+	virtual abcListNode_c	*getSliceHead(int64_t sliceNum, abcResult_e *resultOut = NULL);				// overloaded to fail
+	virtual abcListNode_c	*getSliceTail(int64_t sliceNum, abcResult_e *resultOut = NULL);				// overloaded to fail
+	virtual int64_t			getSliceNodeCount(int64_t sliceNum, abcResult_e *resultOut = NULL);			// overloaded to fail
 
 	virtual abcResult_e		addSliceHead(int64_t sliceNum, abcListNode_c *nodeToAdd);	 											 // overloaded to fail
 	virtual abcResult_e		addSliceTail(int64_t sliceNum, abcListNode_c *nodeToAdd);	 											 // overloaded to fail
@@ -303,9 +299,9 @@ class abcHashList_c  : public abcSlicedList_c	// a list is also a listNode
 	virtual abcListNode_c	*pullSliceHead(int64_t sliceNum);															 			 // overloaded to fail
 	virtual abcListNode_c	*pullSliceTail(int64_t sliceNum);															 			 // overloaded to fail
 
-	virtual abcListNode_c	*findSliceFirst(int64_t sliceNum, nodeKey_s *searchKey,uint8_t towardsNext);	  		 				 // overloaded to fail
-	virtual abcListNode_c	*findSliceNext(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext);	 // overloaded to fail
-	virtual abcListNode_c	*findSliceActual(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext); // overloaded to fail
+	virtual abcListNode_c	*findSliceFirst(int64_t sliceNum, nodeKey_s *searchKey,uint8_t towardsNext,  abcResult_e *resultOut = NULL);	  		 				 // overloaded to fail
+	virtual abcListNode_c	*findSliceNext(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext,  abcResult_e *resultOut = NULL);	 // overloaded to fail
+	virtual abcListNode_c	*findSliceActual(int64_t sliceNum, nodeKey_s *searchKey, abcListNode_c *startNode, uint8_t towardsNext,  abcResult_e *resultOut = NULL); // overloaded to fail
 
 	///////////  **********  Thisngs unique abcHashList_c ************  //////////////
 

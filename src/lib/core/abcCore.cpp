@@ -10,8 +10,10 @@
 
 #include "abcCore.h"
 
-abcCore_c	*abcGlobalCore = NULL;
-abcMemMon_c *abcGlobalMem = NULL;
+abcCore_c		  *globalCore = NULL;
+abcMemMon_c 	  *globalMem = NULL;
+abcGlobalConfig_s *globalConfig = NULL;
+
 
 
 double  randomPercentage()
@@ -31,11 +33,11 @@ abcTime1m_t getTime1m()
 
 abcResult_e abcInit(int initVal)
 {
-	if (!abcGlobalCore)
+	if (!globalCore)
 	{
-		abcGlobalCore = new abcCore_c();
-		abcGlobalMem = new abcMemMon_c("abcGlobalMemMon");	// memory tracker always on
-		return abcGlobalCore->init(initVal);
+		globalCore = new abcCore_c();
+		globalMem = new abcMemMon_c("globalMemMon");	// memory tracker always on
+		return globalCore->init(initVal);
 	}
 	else
 	{
@@ -45,53 +47,129 @@ abcResult_e abcInit(int initVal)
 }
 abcResult_e abcShutdown(int displayVal)
 {
-	if (!abcGlobalCore)
+	if (!globalCore)
 	{
 		return ABC_FAIL;
 	}
 	else
 	{
-		abcGlobalMem->shutdown(displayVal);
-		abcGlobalCore->shutdown(displayVal);
-		delete abcGlobalCore;
-		delete abcGlobalMem;
-		abcGlobalCore = NULL;
-		abcGlobalMem = NULL;
+		globalMem->shutdown(displayVal);
+		globalCore->shutdown(displayVal);
+		delete globalCore;
+		delete globalMem;
+		globalCore = NULL;
+		globalMem = NULL;
 	}
 	return ABC_PASS;
 }
-void abcGlobalSetErrorReason(abcReason_e reason)
+void globalSetReason(abcReason_e reason)
 {
-	if (!abcGlobalCore)
+	if (!globalCore)
 	{
 		abcInit(0);
 	}
-	abcGlobalCore->setErrorReason(reason);
+	globalCore->setReason(reason);
 }
-void abcGlobalResetErrorReason() 
+void globalResetReason() 
 {
-	abcGlobalSetErrorReason(ABC_REASON_NONE);
+	globalSetReason(ABC_REASON_NONE);
 }
 
+///==========================================================T
+// convenience methods used my the print and debugging macros
+uint8_t globalPrintEnabled(debugPrint_e type)
+{
+	switch(type)
+	{
+		case DBGP_E:
+			return globalConfig->printErrors;
+
+		case DBGP_W:
+			return globalConfig->printWarnings;
+
+		case DBGP_P:
+			return globalConfig->printPrint;
+
+		case DBGP_D:
+			return globalConfig->printDebug;
+
+		case DBGP_UNKNOWN:
+		default: 
+			fprintf(stderr,"Unknown debugPrint_e type:%d\n",type);
+			return TRUE;
+	}
+}
+uint8_t globalAbortEnabled(debugAbort_e type)
+{
+	switch(type)
+	{
+
+		case DBGA_E:
+			return globalConfig->abortErrors;
+
+		case DBGA_UNKNOWN:
+		default: 
+			fprintf(stderr,"Unknown debugAbort_e type:%d\n",type);
+			return TRUE;
+	}
+}
+
+///=================================================================================
+// signal handling.... bring all handled signals to a single routine for dispatching
+void abcCoreHandleSignal(int signal)
+{
+	//globalCore->mutexLock();
+	fprintf(stderr,"abcCore got signal %d\n",signal);
+
+	switch (signal)
+	{
+		case SIGINT:
+			exit(1);
+		case SIGTERM:
+			exit(1);
+		default:
+			fprintf(stderr,"Not handled.... continuing\n");
+	}
+	//globalCore->mutexUnlock();
+}
+
+// end signal handling
+///=================================================================================
 
 ///////////////////////////////////////////
 abcCore_c::abcCore_c()
 {
-	errorReason = ABC_REASON_NONE;
+	reason = ABC_REASON_NONE;
+	config = (abcGlobalConfig_s *)calloc(1,sizeof(abcGlobalConfig_s));	// zero being the default state... we'll set some one's in init as better defaults
 	mutexInit();
 }
 abcCore_c::~abcCore_c()
 {
 	pthread_mutex_destroy(&mutex);
+	free(config);
 }
 
 abcResult_e abcCore_c::init(int initVal)
 {
 	mutexLock();
 
-	initPrimes();	// can pass in a non-default number
-	generateCrc32Table();
-	generateCrc64Table();
+	abcResult_e res = initPrimes();	// can pass in a non-default number
+	CHECK_ERROR(res,ABC_REASON_THREAD_INIT_FAILED,res);
+	res = initSignalHandling();
+	CHECK_ERROR(res,ABC_REASON_THREAD_INIT_FAILED,res);
+	res = generateCrc32Table();
+	CHECK_ERROR(res,ABC_REASON_THREAD_INIT_FAILED,res);
+	res = generateCrc64Table();
+	CHECK_ERROR(res,ABC_REASON_THREAD_INIT_FAILED,res);
+
+	// setup printfing defaults as completely noise.  Let the user turn them off as needed
+	config->printErrors = TRUE;
+	config->printWarnings = TRUE;
+	config->printPrint = TRUE;
+	config->printDebug = TRUE;
+
+	// setup abort defaults as strict.  Let the user tune down the strictness.
+	config->abortErrors = TRUE;
 
 	mutexUnlock();
 
@@ -101,6 +179,11 @@ abcResult_e abcCore_c::init(int initVal)
 abcResult_e abcCore_c::shutdown(int shutdownVal)
 {
 	return ABC_PASS;
+}
+
+abcGlobalConfig_s *abcCore_c::getConfig()
+{
+	return config;
 }
 
 
@@ -137,15 +220,37 @@ abcResult_e abcCore_c::mutexUnlock()
 }
 
 
-void abcCore_c::setErrorReason(abcReason_e reasonSet)
+void abcCore_c::setReason(abcReason_e reasonSet)
 {
-	errorReason = reasonSet;
+	reason = reasonSet;
 };
 
-abcReason_e abcCore_c::getErrorReason()
+abcReason_e abcCore_c::getReason()
 {
-	return errorReason;
+	return reason;
 };
+
+
+
+abcResult_e abcCore_c::initSignalHandling()
+{
+	struct  sigaction  sigAct;
+	struct  sigaction *saPtr = &sigAct;
+
+	// handle sigInt and SigTerm the same way
+	sigemptyset(&saPtr->sa_mask);
+	saPtr->sa_flags = SA_RESTART;
+	saPtr->sa_handler = abcCoreHandleSignal;
+	sigaction(SIGINT,  saPtr, 0);
+	sigaction(SIGTERM, saPtr, 0);
+	sigaction(SIGHUP,  saPtr, 0);
+
+	sigemptyset(&saPtr->sa_mask);
+	saPtr->sa_flags = SA_RESTART;
+	saPtr->sa_handler = abcCoreHandleSignal;
+	sigaction(SIGABRT, saPtr, 0);
+	return ABC_PASS;
+}
 
 abcResult_e abcCore_c::initPrimes(int maxValue)
 {
@@ -195,7 +300,7 @@ abcResult_e  abcCore_c::updatePrimes(int newSieveArraySize)
 	mutexLock();
 	if (newSieveArraySize < sieveArraySize)
 	{
-		FATAL_ERROR(ABC_REASON_PARAM_TOO_SMALL);
+		ERROR(ABC_REASON_PARAM_TOO_SMALL);
 		return ABC_FAIL;
 	}
 	// make a new array and copy old to new.

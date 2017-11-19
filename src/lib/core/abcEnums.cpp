@@ -26,12 +26,15 @@ char *abcResultAsStr(abcResult_e result)
 		return (char *)"ABC_GREATER_THAN";
 	  case ABC_DIFFERENT: //  = 3,
 		return (char *)"ABC_DIFFERENT";
+	  case ABC_ERROR: //  = 4,
+		return (char *)"ABC_ERROR";
 	default:
 		return (char *)"abcResult_e case not handled";
 	}
 	return NULL;
 } // abcResultAsStr()
 
+/* Handled now with STRINGIFY() 
 char *abcReasonAsStr(abcReason_e reason)
 {
 	switch (reason)
@@ -70,15 +73,22 @@ char *abcReasonAsStr(abcReason_e reason)
 	return NULL;
 
 } // abcReasonAsStr()
+*/
 
 char *trueFalseAsStr(uint8_t trueFalse)
 {
-	return (char *)(trueFalse ? "TRUE" : "FALSE");
+	return (char *)(trueFalse ? "True" : "False");
 }
+
+char *passFailAsStr(uint8_t passFail)
+{
+	return (char *)(passFail ? "Pass" : "Fail");
+}
+
 
 char *yesNoAsStr(uint8_t yesNo)
 {
-	return (char *)(yesNo ? "YES" : "NO");
+	return (char *)(yesNo ? "Yes" : "No");
 }
 
 // EOF abcEnums.cpp
