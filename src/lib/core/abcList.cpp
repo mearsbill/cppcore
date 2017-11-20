@@ -19,9 +19,10 @@
 #include "abcDebugMacros.h"
 #include "abcCore.h"
 
-abcList_c::abcList_c(const char *setName)
+abcList_c::abcList_c(const char *setName, CONFIG_t setConfigBits) : abcListNode_c(setConfigBits)
 {
-	name = setName ? strdup(setName) : NULL; 
+
+	name = (USE_OBJ_NAME(configBits) && setName) ? ABC_STRDUP(USE_MEM_TOOL(setConfigBits),(char *)setName) : NULL; 
 
 	headNode = NULL;
 	tailNode = NULL;
@@ -310,6 +311,8 @@ abcResult_e abcList_c::addHead(abcListNode_c *nodeToAdd)
 #endif
 	return  abcList_c::addHeadPriv(nodeToAdd);
 }
+
+// this internal routine doesn do the checking
 abcResult_e abcList_c::addHeadPriv(abcListNode_c *nodeToAdd)
 {
 	// everything pre-validated from here.
@@ -319,8 +322,8 @@ abcResult_e abcList_c::addHeadPriv(abcListNode_c *nodeToAdd)
 	if (nodeCount)
 	{
 		// list already exists
-		// add new node before the current head
-		// configure new head node
+		// add New node before the current head
+		// configure New head node
 		nodeToAdd->prevNode = NULL;
 		nodeToAdd->nextNode = headNode;
 
@@ -333,14 +336,14 @@ abcResult_e abcList_c::addHeadPriv(abcListNode_c *nodeToAdd)
 	}
 	else
 	{
-		// brand new list
+		// brand New list
 		headNode = tailNode = nodeToAdd;
 		nodeCount = 1;
 	}
 	return ABC_PASS;
 } // end abcList_c::addHeadPriv()
 
-abcResult_e abcList_c::addTail(abcListNode_c *nodeToAdd)							 // add a new node at tail and update tail.  Do not update current
+abcResult_e abcList_c::addTail(abcListNode_c *nodeToAdd)							 // add a New node at tail and update tail.  Do not update current
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	// sanity test on the node being added
@@ -348,17 +351,17 @@ abcResult_e abcList_c::addTail(abcListNode_c *nodeToAdd)							 // add a new nod
 	CHECK_ERROR(nodeToAdd->owner,ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
 	CHECK_ERROR((isSorted && (nodeCount > 0)),ABC_REASON_LIST_IS_SORTED,ABC_FAIL);
 #endif
-	return abcList_c::addTailPriv(nodeToAdd);							 // add a new node at tail and update tail.  Do not update current
+	return abcList_c::addTailPriv(nodeToAdd);							 // add a New node at tail and update tail.  Do not update current
 }
-abcResult_e abcList_c::addTailPriv(abcListNode_c *nodeToAdd)							 // add a new node at tail and update tail.  Do not update current
+abcResult_e abcList_c::addTailPriv(abcListNode_c *nodeToAdd)							 // add a New node at tail and update tail.  Do not update current
 {
 	nodeToAdd->owner = this;	// checkOwner
 
 	if (nodeCount != 0)
 	{
 		// list already exists
-		// add new node before the current head
-		// configure new head node
+		// add New node before the current head
+		// configure New head node
 		nodeToAdd->prevNode = tailNode;
 		nodeToAdd->nextNode = NULL;
 
@@ -371,7 +374,7 @@ abcResult_e abcList_c::addTailPriv(abcListNode_c *nodeToAdd)							 // add a new
 	}
 	else
 	{
-		// brand new list
+		// brand New list
 		headNode = tailNode = nodeToAdd;
 		nodeCount = 1;
 	}
@@ -440,7 +443,7 @@ abcResult_e abcList_c::insertPriv(abcListNode_c *nodeToInsert, abcListNode_c *no
 	}
 	else
 	{
-		// brand new list
+		// brand New list
 #ifdef _LIST_RIGOROUS_TESTING_
 		// sanity test on the node being added
 		CHECK_ERROR(nodeToFollow,ABC_REASON_NODE_PARAM_SHOULD_BE_NULL,ABC_FAIL); // its on a different list
@@ -702,16 +705,16 @@ abcResult_e abcList_c::diff(class abcList_c *otherList)
 	return ABC_FAIL;
 }
 
-// make a new list and copy each abcListNode_c to it.
+// make a New list and copy each abcListNode_c to it.
 // this will use the virtual clone function of the abcListNode_c object
 abcList_c *abcList_c::clone()
 {
 	// the list has a name but this nodes typically don't
-	abcList_c *newList = new abcList_c();
+	abcList_c *newList = ABC_NEW_CLASS(USE_MEM_TOOL(configBits), abcList_c,name,configBits);
 	abcResult_e cloneResult = abcList_c::copyOut(newList);
 	if (cloneResult != ABC_PASS)
 	{
-		delete newList;
+		ABC_DEL_CLASS(USE_MEM_TOOL(configBits), newList);
 		ERROR(ABC_REASON_LIST_CLONE_FAILED);
 		return NULL;
 	}
@@ -720,7 +723,8 @@ abcList_c *abcList_c::clone()
 
 abcResult_e abcList_c::copyOut(abcList_c *targetOfCopy)
 {
-	OBJ_SIZE_CHECK(abcList_c,272);
+	OBJ_SIZE_CHECK(abcList_c,280);	// returns with ABC_FAIL when size is wrong
+
 
 	// first handle the abcListNode_c copyOut.
 	// this will bring across the search key in the event
@@ -728,12 +732,16 @@ abcResult_e abcList_c::copyOut(abcList_c *targetOfCopy)
 	abcResult_e ncoResult = abcListNode_c::copyOut(targetOfCopy);
 	CHECK_ERROR(ncoResult,ABC_REASON_LIST_CLONE_FAILED,ncoResult);
 
-	if (name)
+	if (USE_OBJ_NAME(configBits) && name)
 	{
-		int len= strlen(name) + 10;
+		int len= strlen(name) + 5;
 		char cloneName[len];
 		snprintf(cloneName,len,"%s[cl]",name);
-		targetOfCopy->name = strdup(cloneName);
+		targetOfCopy->name = ABC_STRDUP(USE_MEM_TOOL(configBits),cloneName);
+	}
+	else
+	{
+		name = NULL;
 	}
 
 	abcListNode_c *walkNode = headNode;
@@ -788,12 +796,14 @@ abcList_c *abcList_c::extractCommonList(class abcList_c *otherList)
 //
 // lifecyle stuff
 //
-abcSlicedList_c::abcSlicedList_c(const char *setName)
+abcSlicedList_c::abcSlicedList_c(const char *setName, CONFIG_t setConfigBits) : abcList_c(setName,setConfigBits)
 {
+#if 0
 	if (setName)
 	{
 		name = strdup(setName);
 	}
+#endif
 	sliceCount = 0;
 	sliceArray = NULL;
 
@@ -802,7 +812,7 @@ abcSlicedList_c::~abcSlicedList_c()
 {
 	if (name)
 	{
-		free(name);
+		ABC_FREE(USE_MEM_TOOL(configBits),name);
 		name = NULL;
 	}
 }
@@ -958,11 +968,11 @@ abcResult_e abcSlicedList_c::diff(class abcList_c *otherList)
 abcList_c *abcSlicedList_c::clone()
 {
 	// the list has a name but this nodes typically don't
-	abcSlicedList_c *newList = new abcSlicedList_c();
+	abcSlicedList_c *newList = ABC_NEW_CLASS(USE_MEM_TOOL(configBits),abcSlicedList_c,name,configBits);
 	abcResult_e cloneResult = abcSlicedList_c::copyOut(newList);
 	if (cloneResult != ABC_PASS)
 	{
-		delete newList;
+		ABC_DEL_CLASS(USE_MEM_TOOL(configBits), newList);
 		ERROR(ABC_REASON_LIST_CLONE_FAILED);
 		return NULL;
 	}
@@ -981,12 +991,16 @@ abcResult_e abcSlicedList_c::copyOut(abcSlicedList_c *targetOfCopy)
 	CHECK_ERROR(res,ABC_REASON_LIST_CLONE_FAILED,ABC_FAIL);
 
 	// now do abcList_c's copyOut work
-	if (name)
+	if (USE_OBJ_NAME(configBits) && name)
 	{
 		int len= strlen(name) + 5;
 		char cloneName[len];
 		snprintf(cloneName,len,"%s[cl]",name);
 		targetOfCopy->name = strdup(cloneName);
+	}
+	else
+	{
+		name = NULL;
 	}
 	// won't copu nodeCount,headNode,tailNode,currNode.
 	targetOfCopy->lockingEnabled = FALSE;
@@ -1041,15 +1055,15 @@ abcResult_e		abcSlicedList_c::addHead(abcListNode_c *nodeToAdd)
 	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
-// add a new node at head and update head.  Do not update current.
+// add a New node at head and update head.  Do not update current.
 abcResult_e		abcSlicedList_c::addTail(abcListNode_c *nodeToAdd)
 {
 	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
 	return ABC_FAIL;
 }
 
-// add a new node at tail and update tail.  Do not update currenty
-// insert new node after specified noed
+// add a New node at tail and update tail.  Do not update currenty
+// insert New node after specified noed
 abcResult_e		abcSlicedList_c::addMiddle(abcListNode_c *nodeToAdd, abcListNode_c *nodeToFollow )
 {
 	ERROR(ABC_REASON_LIST_DISABLED_OPERATION);
@@ -1170,7 +1184,7 @@ int64_t					abcSlicedList_c::getSliceNodeCount(int64_t sliceNum, abcResult_e *re
 // some concern here.... about the API... should we stuff the slice reference into the node before calling here, or pass it in here and then push it into the node from here
 // currently we are passing it in and then this routine writes it into the node record.
 // this is more consistent with how we'll want the hashList to work... since Hashlist will not have an easyily creaded hashIndex
-abcResult_e				abcSlicedList_c::addSliceHead(int64_t sliceNum, abcListNode_c *nodeToAdd) // add a new node at head and update head.  Do not update current.
+abcResult_e				abcSlicedList_c::addSliceHead(int64_t sliceNum, abcListNode_c *nodeToAdd) // add a New node at head and update head.  Do not update current.
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	if ((sliceNum < 0 ) || (sliceNum >= sliceCount))
@@ -1199,7 +1213,7 @@ abcResult_e				abcSlicedList_c::addSliceHead(int64_t sliceNum, abcListNode_c *no
 		sliceRec->tailNode = nodeToAdd;
 		sliceRec->nodeCount = 1;
 
-		// we'll put this new slice at the tail of the existing linear (baseclass) list
+		// we'll put this New slice at the tail of the existing linear (baseclass) list
 		// if this node is NULL, then we'd better have an empty lst.
 		nodeToAdd->sliceIndex = sliceNum;				// install the actual sliceNum into the record.
 		return abcList_c::insertPriv(nodeToAdd,tailNode)	;// insert nodeToAdd immediately after the tail node of the base list.   the whole slice will go there
@@ -1225,7 +1239,7 @@ abcResult_e				abcSlicedList_c::addSliceHead(int64_t sliceNum, abcListNode_c *no
 	}
 	// can't get here
 }
-abcResult_e	abcSlicedList_c::addSliceTail(int64_t sliceNum, abcListNode_c *nodeToAdd) // add a new node at tail and update tail.  Do not update currenty
+abcResult_e	abcSlicedList_c::addSliceTail(int64_t sliceNum, abcListNode_c *nodeToAdd) // add a New node at tail and update tail.  Do not update currenty
 {
 #ifdef _LIST_RIGOROUS_TESTING_
 	CHECK_ERROR(((sliceNum < 0 ) || (sliceNum >= sliceCount)),ABC_REASON_LIST_INVALID_SLICE_NUMBER,ABC_FAIL);
@@ -1242,7 +1256,7 @@ abcResult_e	abcSlicedList_c::addSliceTail(int64_t sliceNum, abcListNode_c *nodeT
 		sliceRec->tailNode = nodeToAdd;
 		sliceRec->nodeCount = 1;
 
-		// we'll put this new slice at the tail of the existing linear (baseclass) list
+		// we'll put this New slice at the tail of the existing linear (baseclass) list
 		// if this node is NULL, then we'd better have an empty lst.
 		return abcList_c::insertPriv(nodeToAdd,tailNode)	;// insert nodeToAdd immediately after the tail node of the base list.   the whole slice will go there
 	}
@@ -1259,7 +1273,7 @@ abcResult_e	abcSlicedList_c::addSliceTail(int64_t sliceNum, abcListNode_c *nodeT
 	// can't get here
 }
 
-abcResult_e				abcSlicedList_c::addSliceMiddle(int64_t sliceNum, abcListNode_c *nodeToAdd, abcListNode_c *nodeToFollow ) // insert new node after specified node
+abcResult_e				abcSlicedList_c::addSliceMiddle(int64_t sliceNum, abcListNode_c *nodeToAdd, abcListNode_c *nodeToFollow ) // insert New node after specified node
 {
 	if (nodeToFollow == NULL)
 	{
@@ -1433,12 +1447,14 @@ abcList_c *abcSlicedList_c::extractCommonList(class abcList_c *otherList)
 //
 // lifecyle stuff
 //
-abcHashList_c::abcHashList_c(const char *setName)
+abcHashList_c::abcHashList_c(const char *setName, CONFIG_t setConfigBits) : abcSlicedList_c(setName,setConfigBits)
 {
+#if 0
 	if (setName)
 	{
 		name = strdup(setName);
 	}
+#endif
 	abcHashList_c::initProtected(100,5, 220); // slices, resizeThreshold, grownthPrecentage
 }
 abcHashList_c::~abcHashList_c()
@@ -1507,11 +1523,11 @@ abcResult_e abcHashList_c::printBuff(char *pBuff, int pbuffSize, abcPrintStyle_e
 abcList_c *abcHashList_c::clone()
 {
 	// the list has a name but this nodes typically don't
-	abcHashList_c *newList = new abcHashList_c();
+	abcHashList_c *newList = ABC_NEW_CLASS(USE_MEM_TOOL(configBits),abcHashList_c,name,configBits);
 	abcResult_e cloneResult = abcHashList_c::copyOut(newList);
 	if (cloneResult != ABC_PASS)
 	{
-		delete newList;
+		ABC_DEL_CLASS(USE_MEM_TOOL(configBits),newList);
 		ERROR(ABC_REASON_LIST_CLONE_FAILED);
 		return NULL;
 	}
@@ -1654,7 +1670,7 @@ abcListNode_c	*abcHashList_c::findSliceActual(int64_t sliceNum, nodeKey_s *searc
 // in abcHashList_c::add we use the nodeKey to determine a hash bucket
 // from there this is just like an abcSlicedList_c::addSliceTail().  In fact we call it direcly.
 // please note that just like SlicedList, we do not expect the slices to appear in order on the base list.
-// we do expect the whole slice to sit together, but new slices are added to the tail of the base list, so
+// we do expect the whole slice to sit together, but New slices are added to the tail of the base list, so
 // the position will vary based on when a slice is first used.  With a HashedList, we use the slices somewhat randomly.
 //
 abcResult_e abcHashList_c::add(abcListNode_c *nodeToAdd)	// MUST have the key already properly initialized
@@ -1663,7 +1679,7 @@ abcResult_e abcHashList_c::add(abcListNode_c *nodeToAdd)	// MUST have the key al
 	// sanity test on the node being added
 	CHECK_ERROR(!nodeToAdd,ABC_REASON_NODE_PARAM_IS_NULL,ABC_FAIL);
 
-	// confirm there is no owner of the new node
+	// confirm there is no owner of the New node
 	CHECK_ERROR(nodeToAdd->owner != NULL,ABC_REASON_NODE_OWNER_NOT_NULL,ABC_FAIL);
 
 	// validate there are slice
@@ -1702,13 +1718,13 @@ abcResult_e abcHashList_c::resizeHashTable()
 	int				localSliceCount = sliceCount;
 	DEBUG("Resizing params:  Threshold=%d  resizePrecentage=%d\n", resizeHashBucketThreshold,resizeHashGrowthPercentage);
 
-	// figure new array Size.... we'll make it a prime number to optimize the distribution of hash keys
+	// figure New array Size.... we'll make it a prime number to optimize the distribution of hash keys
 	// we'll add some internal knobs
 	int64_t primeEst = ((int64_t)localSliceCount * ((100LL + (int64_t)resizeHashGrowthPercentage))) / 100LL;
 	sliceCount = globalCore->findPrime(primeEst);
 	sliceArray = (abcListSlice_s *)calloc(sliceCount, sizeof(abcListSlice_s));
 	resizeHashBucketThreshold += 1;
-	DEBUG("After resizing, new resizing params: SliceCount=%d Threshold=%d  resizePrecentage=%d\n", sliceCount, resizeHashBucketThreshold,resizeHashGrowthPercentage);
+	DEBUG("After resizing, New resizing params: SliceCount=%d Threshold=%d  resizePrecentage=%d\n", sliceCount, resizeHashBucketThreshold,resizeHashGrowthPercentage);
 
 	sliceArray = (abcListSlice_s *)calloc(sliceCount, sizeof(abcListSlice_s));
 
@@ -1736,7 +1752,7 @@ abcResult_e abcHashList_c::resizeHashTable()
 	CHECK_ERROR((loopCount != localNodeCount),ABC_REASON_LIST_HASH_RESIZE_FAILED,ABC_FAIL);
 	CHECK_ERROR((freeNode != localTailNode),ABC_REASON_LIST_HASH_RESIZE_FAILED,ABC_FAIL);
 
-	// new list should be all set.  lets dump the old slice array
+	// New list should be all set.  lets dump the old slice array
 	free(localSliceArray);
 
 	return ABC_PASS;

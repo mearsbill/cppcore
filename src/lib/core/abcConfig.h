@@ -22,6 +22,20 @@
 #define PTHREAD_MUTEX_TYPE PTHREAD_MUTEX_ERRORCHECK // MAC
 #define ABC_BASE_PRIORITY 10
 
+//
+// object config (name and memToolUsage)
+// typedef unsigned char CONFIG_t; defined in abcTypes.h
+#define OBJ_CONFIG_UseMemTool 0x01
+#define OBJ_CONFIG_UseObjName 0x02
+
+// for debug and most situations
+#define DEFAULT_OBJ_CONFIG (  OBJ_CONFIG_UseMemTool   | OBJ_CONFIG_UseObjName)
+#define MEMTOOL_OBJ_CONFIG (/*OBJ_CONFIG_UseMemTool | */OBJ_CONFIG_UseObjName)
+
+#define USE_OBJ_NAME(configBits) (configBits & OBJ_CONFIG_UseObjName)
+#define USE_MEM_TOOL(configBits) (configBits & OBJ_CONFIG_UseMemTool)
+
+
 #endif //__ABC_CONFIG_H__
 // EOF abcConfig.h
 

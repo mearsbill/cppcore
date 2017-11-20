@@ -14,7 +14,7 @@ abcResult_e testThreads()
 
 	abcResult_e result;
 
-	abcThread_c *myThread = ABC_NEW_CLASS(abcThread_c,"myThread");
+	abcThread_c *myThread = ABC_NEW_CLASS(TRUE,abcThread_c,"myThread");
 	if (!myThread)
 	{
 		ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
@@ -115,14 +115,14 @@ abcResult_e testMemMon()
 	PRINT("TESTING abcMemMon_c\n");
 	abcMemMon_c *mMon = new abcMemMon_c("testMemMon");
 	char  *j1= (char *)mMon + 0x123450;
-	void *returnPtr = mMon->interceptClassNew(j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
+	void *returnPtr = mMon->interceptClassNew(TRUE,j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
 	if (returnPtr != j1)
 	{
 		ERROR_G(ABC_REASON_TEST_FAILED);
 		return ABC_FAIL;
 	}
 	// should fail with same address
-	returnPtr = mMon->interceptClassNew(j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
+	returnPtr = mMon->interceptClassNew(TRUE,j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
 	if (returnPtr)
 	{
 		PRINT("Should have failed but didn't\n");
@@ -139,10 +139,10 @@ abcResult_e testMemMon()
 
 	char *j2 = j1+1;
 	char *j3 = j2+1;
-	returnPtr = mMon->interceptClassNew(j2, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
-	returnPtr = mMon->interceptClassNew(j3, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
-	mMon->interceptDelete(j2, (char *)"unitTest.cpp",189,(char *)"testFn_deleteSpot");
-	mMon->interceptDelete(j2, (char *)"unitTest.cpp",189,(char *)"testFn_deleteSpot");
+	returnPtr = mMon->interceptClassNew(TRUE,j2, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
+	returnPtr = mMon->interceptClassNew(TRUE,j3, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
+	mMon->interceptDelete(TRUE,j2, (char *)"unitTest.cpp",189,(char *)"testFn_deleteSpot");
+	mMon->interceptDelete(TRUE,j2, (char *)"unitTest.cpp",189,(char *)"testFn_deleteSpot");
 
 	mMon->printMemoryStats();
 

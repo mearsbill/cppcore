@@ -33,6 +33,7 @@ class abcMemNameNode_c : public abcListNode_c	// a node just for names and index
 		// uint64_t			nameHash; 	// stored in the nodeKey !!
 		char				*name;
 		int64_t				useCount;
+		CONFIG_t			configBits;
 
 	public:
 		friend class abcMemMon_c;
@@ -153,6 +154,7 @@ class abcMemMon_c // : public abcListNode_c
 {
   private:
   	char			*name;
+	CONFIG_t		configBits;
   	abcHashList_c	*mmapList;			// hashed by address using abcMmapNode_c nodes
   	abcHashList_c	*delmapList;		// hashed by address using abcMmapNode_c nodes... all the deleted memory segments
 	abcHashList_c	*nameList;			// hashed by name. Hold objectTypeNames and locationStrings using  abcMemNameNode_c
@@ -181,13 +183,14 @@ class abcMemMon_c // : public abcListNode_c
 
 
 	// public methods
-	void *interceptCommonNew(void *objAddr, char *objHashName, int objectSize, char *fileName, int fileLine, char *fileFunction);
-	void *interceptClassNew(void *objAddr, char *className, int objectSize, char *fileName, int fileLine, char *fileFunction);
-	void *interceptStructNew(void *structAddr, char *structName, int objectSize, char *fileName, int fileLine, char *fileFunction);
-	void *interceptRawNew(void *rawAddr, int objectSize, char *fileName, int fileLine, char *fileFunction);
+	void *interceptCommonNew(uint8_t useMt,void *objAddr, char *objHashName, int objectSize, char *fileName, int fileLine, char *fileFunction);
+	void *interceptClassNew(uint8_t useMt,void *objAddr, char *className, int objectSize, char *fileName, int fileLine, char *fileFunction);
+	void *interceptStructNew(uint8_t useMt,void *structAddr, char *structName, int objectSize, char *fileName, int fileLine, char *fileFunction);
+	void *interceptRawNew(uint8_t useMt,void *rawAddr, int objectSize, char *fileName, int fileLine, char *fileFunction);
+	char *interceptStrdup(uint8_t useMt,char *string);
 
 	// same routine works for all delete of all oject types..
-	void interceptDelete(void *objAddr, char *fileName, int fileLine, char *fileFunction);
+	void interceptDelete(uint8_t useMt,void *objAddr, char *fileName, int fileLine, char *fileFunction);
 
 	void printMemoryMap();
 	void printMemoryStats();
@@ -197,14 +200,16 @@ class abcMemMon_c // : public abcListNode_c
 
 // the macros !!
 
-#define ABC_NEW_CLASS(a,b...)  (a *)globalMem->interceptClassNew((void *)(new a(b)),(char *)STRINGIFY(a),sizeof(a),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
-#define ABC_NEW_STRUCT(a)  (a *)globalMem->interceptStructNew((void *)(calloc(1,sizeof(a)),(char *)STRINGIFY(a),sizeof(a),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
-#define ABC_MALLOC(mSize)  globalMem->interceptClassNew((void *)(malloc(mSize),mSize,(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
-#define ABC_CALLOC(cCount, cSize)  globalMem->interceptClassNew(calloc(cCount,cSize),(cCount * cSize),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
+#define ABC_NEW_CLASS(useMt,a,b...)  (a *)globalMem->interceptClassNew(useMt,(void *)(new a(b)),(char *)STRINGIFY(a),sizeof(a),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
+#define ABC_NEW_STRUCT(useMt,a)  (a *)globalMem->interceptStructNew(useMt,(void *)(calloc(1,sizeof(a)),(char *)STRINGIFY(a),sizeof(a),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
+#define ABC_MALLOC(useMt,mSize)  globalMem->interceptRawNew(useMt,malloc(mSize),mSize,(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
+#define ABC_CALLOC(useMt,cCount, cSize)  globalMem->interceptRawNew(useMt,calloc(cCount,cSize),(cCount * cSize),(char *)__FILE__,__LINE__,(char *)__FUNCTION__)
+#define ABC_STRDUP(useMt,string)  globalMem->interceptStrdup(useMt,string )
 
-#define ABC_DEL_CLASS(objPtr)     globalMem->interceptDelete((void *)objPtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__); delete objPtr
-#define ABC_DEL_STRUCT(structPtr) globalMem->interceptDelete((void *)structPtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__);free (structPtr)
-#define ABC_FREE(freePtr)         globalMem->interceptDelete((void *)freePtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__);free(freePtr)
+#define ABC_DEL_CLASS(useMt,objPtr)     globalMem->interceptDelete(useMt,(void *)objPtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__); delete objPtr
+#define ABC_DEL_STRUCT(useMt,structPtr) globalMem->interceptDelete(useMt,(void *)structPtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__);free (structPtr)
+#define ABC_FREE(useMt,freePtr)         globalMem->interceptDelete(useMt,(void *)freePtr,(char *)__FILE__,__LINE__,(char *)__FUNCTION__);free(freePtr)
+
 
 
 #endif //__ABC_MEMORY_H__

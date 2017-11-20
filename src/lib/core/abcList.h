@@ -42,13 +42,18 @@ class abcList_c : public abcListNode_c	// a list is also a listNode
 	abcResult_e		unlock();	// unlock the mutex
 
 
+	// resticted to subclassess
+
+	virtual abcResult_e		addHeadPriv(abcListNode_c *nodeToAdd);			 // Internal add a new node at head and update head.  Do not update current.
+	virtual abcResult_e		addTailPriv(abcListNode_c *nodeToAdd);			 //  Internal/ add a new node at tail and update tail.  Do not update currenty
+	virtual abcResult_e		insertPriv(abcListNode_c *nodeToInsert, abcListNode_c *nodeToFollow);	// Internal insert without disturbing curr.  return "next" node
 
 
 
   public:
 
 	// lifecyle stuff
-	abcList_c(const char *setName = NULL);
+	abcList_c(const char *setName = NULL, CONFIG_t setConfigBits = DEFAULT_OBJ_CONFIG);
 	~abcList_c();
 
 	// baseClass only
@@ -87,13 +92,9 @@ class abcList_c : public abcListNode_c	// a list is also a listNode
 	int64_t				 getNodeCount();					// get count of nodes on list.
 
 	virtual abcResult_e		addHead(abcListNode_c *nodeToAdd);							 // add a new node at head and update head.  Do not update current.
-	virtual abcResult_e		addHeadPriv(abcListNode_c *nodeToAdd);			 // Internal add a new node at head and update head.  Do not update current.
 	virtual abcResult_e		addTail(abcListNode_c *nodeToAdd);							 // add a new node at tail and update tail.  Do not update currenty
-	virtual abcResult_e		addTailPriv(abcListNode_c *nodeToAdd);			 //  Internal/ add a new node at tail and update tail.  Do not update currenty
 	virtual abcResult_e		addMiddle(abcListNode_c *nodeToAdd, abcListNode_c *nodeToFollow ); // insert new node after specified noed
 	virtual abcResult_e		insert(abcListNode_c *nodeToInsert, abcListNode_c *nodeToFollow);	// insert without disturbing curr.  return "next" node
-	virtual abcResult_e		insertPriv(abcListNode_c *nodeToInsert, abcListNode_c *nodeToFollow);	// Internal insert without disturbing curr.  return "next" node
-
 	virtual abcResult_e		remove(abcListNode_c *nodeToRemove);						//  remove specifified node
 	virtual abcListNode_c	*pullHead();												// return the head of the list after removing it. 
 	virtual abcListNode_c	*pullTail();												// return the tail of the list after removing it.
@@ -142,7 +143,7 @@ class abcSlicedList_c  : public abcList_c
 
 
 	// lifecyle stuff
-	abcSlicedList_c(const char *setName = NULL);
+	abcSlicedList_c(const char *setName = NULL, CONFIG_t setConfigBits = DEFAULT_OBJ_CONFIG);
 	~abcSlicedList_c();
 	virtual abcResult_e init(int sliceCount);	// must set the number of slices being used
 
@@ -234,7 +235,7 @@ class abcHashList_c  : public abcSlicedList_c	// a list is also a listNode
   public:
 
 	// lifecyle stuff
-	abcHashList_c(const char *setName = NULL);
+	abcHashList_c(const char *setName = NULL, CONFIG_t setConfigBits = DEFAULT_OBJ_CONFIG);
 	~abcHashList_c();
 	virtual abcResult_e init(int sliceCount);				
 

@@ -59,8 +59,9 @@ char *keyTypeAsStr(keyType_e type)
 //
 // abcListNode_c could use these methods  but doesnt
 // and create helper methods for standalone nodeKeys
-void nodeKey_init(nodeKey_s *This)
+void nodeKey_init(nodeKey_s *This,uint8_t setUseMt)
 {
+	This->useMt = setUseMt;
 	This->type = KEYTYPE_UNKNOWN;
 	This->size = 0;
 	This->value.string = NULL;
@@ -73,8 +74,7 @@ void nodeKey_destroy(nodeKey_s *This)
 	    case KEYTYPE_BIN_COPYIN:
 			if (This->value.string)
 			{
-				free(This->value.string); 
-				nodeKey_init(This);
+				ABC_FREE(This->useMt,This->value.string); 
 			}
 			break;
 
@@ -89,7 +89,7 @@ void nodeKey_destroy(nodeKey_s *This)
 		default:
 			break;
 	}
-	nodeKey_init(This);
+	nodeKey_init(This,This->useMt);
 }
 void nodeKey_setInt(nodeKey_s *This, const int64_t intKey)
 {
@@ -116,13 +116,13 @@ void nodeKey_setString(nodeKey_s *This, const char *string)
 	// protect against re-key 
 	if (This->value.string)
 	{
-		free(This->value.string);
+		ABC_FREE(This->useMt,This->value.string);
 		This->value.string = NULL;
 	}
 	// only copying when not null
 	if ( string )
 	{
-		This->value.string = strdup(string);
+		This->value.string = ABC_STRDUP(This->useMt,(char *)string);
 	}
 }
 void nodeKey_setStringExternal(nodeKey_s *This, const char *string)
@@ -137,13 +137,13 @@ void nodeKey_setBinary(nodeKey_s *This, const uint8_t *binary, int sLen)
 	// protect against re-key 
 	if (This->value.string)
 	{
-		free(This->value.string);
+		ABC_FREE(This->useMt,This->value.string);
 		This->value.string = NULL;
 		This->size = 0;
 	}
-	if ( binary )
+	if ( binary != NULL )
 	{
-		This->value.string = (char *)malloc(sLen);
+		This->value.string = (char *)ABC_MALLOC(This->useMt,sLen);
 		This->size = (int32_t)sLen;
 		memcpy(This->value.string,binary,sLen);
 	}
@@ -237,9 +237,10 @@ abcResult_e abcNode_c::print(abcPrintStyle_e printStyle)
 //
 // abcListNode_c Methods
 //
-abcListNode_c::abcListNode_c()
+abcListNode_c::abcListNode_c(CONFIG_t setConfigBits)
 {
-	nodeKey_init(&key);	// init to KEYTYPE_UNKNOWN
+	configBits = setConfigBits;
+	nodeKey_init(&key,USE_MEM_TOOL(setConfigBits));	// init to KEYTYPE_UNKNOWN
 	owner = NULL;
 	sliceIndex = 0;
 	resetReason();
@@ -261,14 +262,14 @@ abcReason_e abcListNode_c::getReason()
 	return reason;
 }
 // key cloning is tricky because of the string.... which might be strduped
-// when we clone it, we might need to strdup another copy so it can be freed independently
+// when we clone it, we might need to strdup another copy so it can be Freed independently
 // if the value type is a pointer, the pointer itself is the unit of compare and does not get copied.
 //
 abcResult_e abcListNode_c::copyOut(abcListNode_c *other)
 {
 	// we'll verify that the size of the object has not changed.
 	// when it does, you should carefully inspect for missing elements in the cloning process
-	OBJ_SIZE_CHECK(abcListNode_c,56);	// will return error Var;
+	OBJ_SIZE_CHECK(abcListNode_c,64);	// will return error Var;
 
 
 	//
@@ -280,11 +281,11 @@ abcResult_e abcListNode_c::copyOut(abcListNode_c *other)
 	switch(key.type)
 	{
 	    case KEYTYPE_STRING_COPYIN:	// null terminated
-			other->key.value.string = strdup(key.value.string);
+			other->key.value.string = ABC_STRDUP(USE_MEM_TOOL(configBits),key.value.string);
 			break;
 
 	    case KEYTYPE_BIN_COPYIN:	// memory block with size
-			other->key.value.string = (char *)malloc(key.size);
+			other->key.value.string = (char *)ABC_MALLOC(USE_MEM_TOOL(configBits),key.size);
 			memcpy(other->key.value.string,key.value.string,key.size);
 			break;
 
@@ -313,6 +314,7 @@ abcResult_e abcListNode_c::copyOut(abcListNode_c *other)
 	other->owner = NULL;
 	other->sliceIndex = sliceIndex;
 	other->reason = reason;
+	other->configBits = configBits;
 	
 	// should be returning with the payload copied but the owner and the prev/next variables NULL
 	return ABC_PASS;
@@ -320,7 +322,7 @@ abcResult_e abcListNode_c::copyOut(abcListNode_c *other)
 //
 abcListNode_c *abcListNode_c::clone()
 {
-	abcListNode_c *copy = new abcListNode_c();	// make right storage
+	abcListNode_c *copy = ABC_NEW_CLASS(USE_MEM_TOOL(configBits),abcListNode_c,configBits);
 	abcListNode_c::copyOut(copy);				// then copy guts
 	return copy;
 }
@@ -532,7 +534,7 @@ void abcListNode_c::setKeyString(const char *stringKey)
 {
 	key.type = KEYTYPE_STRING_COPYIN; 
 	key.size = 0;
-	key.value.string = strdup(stringKey);
+	key.value.string = ABC_STRDUP(USE_MEM_TOOL(configBits),(char *)stringKey);
 }
 
 void abcListNode_c::setKeyStringMember(const char *stringKey)
@@ -554,7 +556,7 @@ void abcListNode_c::setKeyStringExternal(const char *stringKey)
 void abcListNode_c::setKeyBinary(const uint8_t *mem,int size)
 {
 	key.type = KEYTYPE_BIN_COPYIN; 
-	key.value.string = (char *)malloc(size);
+	key.value.string = (char *)ABC_MALLOC(USE_MEM_TOOL(configBits),size);
 	key.size  = size;
 	memcpy(key.value.string,mem,size);
 }
@@ -578,11 +580,11 @@ void abcListNode_c::setKeyBinaryExternal(const uint8_t *mem,int size)
 //////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
 
-testNode_c::testNode_c(const char *setName)
+testNode_c::testNode_c(const char *setName, const CONFIG_t setConfigBits) : abcListNode_c(setConfigBits)
 {
-	if (setName != NULL)
+	if (USE_OBJ_NAME(setConfigBits) && (setName != NULL))
 	{
-		name = strdup(setName);
+		name = ABC_STRDUP(USE_MEM_TOOL(setConfigBits),(char *)setName);
 	}
 	else
 	{
@@ -594,7 +596,7 @@ testNode_c::~testNode_c()
 {
 	if (name)
 	{
-		free(name);
+		ABC_FREE(USE_MEM_TOOL(configBits),name);
 		name = NULL;
 	}
 }
@@ -608,18 +610,22 @@ abcResult_e testNode_c::copyOut(testNode_c *targetOfCopy)
 {
 
 	// safety check for object size change (something was added... which would imply clone method needs update
-	OBJ_SIZE_CHECK(testNode_c,72);
+	OBJ_SIZE_CHECK(testNode_c,80);
 
 	// copy parent and then our sepcifics
 
 	abcResult_e coResult = abcListNode_c::copyOut(targetOfCopy);
 	CHECK_ERROR(coResult,ABC_REASON_NODE_CLONE_FAILED,coResult);
-	if (name)
+	if (USE_OBJ_NAME(configBits) && name)
 	{
 		int sl = strlen(name);
 		char newName[sl+5];
 		snprintf(newName,sl+5,"%s[cl]",name);
-		targetOfCopy->name = strdup(newName);
+		targetOfCopy->name = ABC_STRDUP(USE_MEM_TOOL(configBits),newName);
+	}
+	else
+	{
+		name = NULL;
 	}
 	targetOfCopy->value = value;
 
@@ -667,7 +673,13 @@ abcResult_e testNode_c::print(abcPrintStyle_e printStyle)
 abcListNode_c *testNode_c::clone()
 {
 	testNode_c *copy = new testNode_c();
-	testNode_c::copyOut(copy);
+	abcResult_e res = testNode_c::copyOut(copy);
+	if (res)
+	{
+		delete copy;
+		ERROR(ABC_REASON_NODE_CLONE_FAILED);
+		return NULL;
+	}
 	return copy;
 }
 
@@ -682,12 +694,12 @@ void testNode_c::setName(const char *setName)
 {
 	if (name)
 	{
-		free(name);
+		ABC_FREE(USE_MEM_TOOL(configBits),name);
 		name = NULL;
 	}
 	if (setName)
 	{
-		name = strdup(setName);
+		name = ABC_STRDUP(USE_MEM_TOOL(configBits),(char *)setName);
 	}
 }
 void testNode_c::setValue(const int setValue)

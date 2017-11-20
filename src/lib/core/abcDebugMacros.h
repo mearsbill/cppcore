@@ -66,12 +66,12 @@ typedef enum  debugAbort_e		// param to globalAbortEnabled()
 #define PRINT_LTD(unfilteredCount,filterRate,x...) { static int pCount=0; pCount++; if ((pCount <= unfilteredCount) || ( (filterRate>0 && (!(pCount % filterRate))))) if (globalPrintEnabled(DBGP_P)) fprintf(stderr,x); }
 
 // Debugging Macros (typically for debugging... off in production)
-#define DEBUG(x...)		if (globalPrintEnabled(DBGP_D)) { char tmpLine[256]; snprintf(tmpLine,256,x); fprintf(stderr,"%s in method %s at %s:%d\n",tmpLine,__FUNCTION__,__FILE__,__LINE__); }
+#define DEBUG(x...)		if (globalPrintEnabled(DBGP_D)) { char tmpLine[256]; snprintf(tmpLine,256,x); fprintf(stderr,"Debug: %s in method %s at %s:%d\n",tmpLine,__FUNCTION__,__FILE__,__LINE__); }
 #define DEBUG_LTD(unfilteredCount,filterRate,x...) { static int pCount=0; pCount++; if ((pCount <= unfilteredCount) || ( (filterRate>0 && (!(pCount % filterRate))))) DEBUG(x);
 
-#define LOG_TEST(testName,result) fprintf(stderr,"Test %s: %s\n",testName,passFailAsStr(result))
-#define TTY_CHK_TEST(testNoStr,inStr,PassChar,failureSum) {if (strlen(inStr)==1) inStr[0]=PassChar; int testPassedTmp = (toupper(inStr[0]) == PassChar ); LOG_TEST(testNoStr,testPassedTmp); failureSum += !testPassedTmp;}
-#define CHECK_TEST(testNoStr,passCondition,failureSum) {int testPassedTmp = (passCondition); LOG_TEST(testNoStr,testPassedTmp); failureSum += !testPassedTmp;}
+#define LOG_TEST(testId,testDescr,result) fprintf(stderr,"Test %-10s: %-60s %s\n",testId,testDescr,passFailAsStr(result))
+#define TTY_CHK_TEST(testId,testDescr,inStr,PassChar,failureSum) {if (strlen(inStr)==1) inStr[0]=PassChar; int testPassedTmp = (toupper(inStr[0]) == PassChar ); LOG_TEST(testId,testDescr,testPassedTmp); failureSum += !testPassedTmp;}
+#define CHECK_TEST(testId,testDescr,passCondition,failureSum) {int testPassedTmp = (passCondition); LOG_TEST(testId,testDescr,testPassedTmp); failureSum += !testPassedTmp;}
 
 #endif //__ABC_DEBUG_MACROS_H__
  // EOF abcDebugMacros.h

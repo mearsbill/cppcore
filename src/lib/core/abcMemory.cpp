@@ -307,28 +307,30 @@ abcMemMon_c::abcMemMon_c(const char *setName)
 	{
 		name = strdup(setName);
 	}
-	mmapList = new abcHashList_c("mmapList");
+	configBits = MEMTOOL_OBJ_CONFIG;
+
+	mmapList = new abcHashList_c("mmapList",configBits);
 	abcResult_e res = mmapList->initProtected(1000,3,300);
 	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
 
 	res = mmapList->enableLocking();
 	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
 
-	delmapList = new abcHashList_c("delmapList");
+	delmapList = new abcHashList_c("delmapList",configBits);
 	res = delmapList->initProtected(1000,3,300);
 	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
 
 	res = delmapList->enableLocking();
 	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
 
-	nameList = new abcHashList_c("nameList");
+	nameList = new abcHashList_c("nameList",configBits);
 	res = nameList->initProtected(2000,6,300);
 	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
 
 	res = nameList->enableLocking();
 	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
 
-	statsList = new abcHashList_c("statsList");;
+	statsList = new abcHashList_c("statsList",configBits);
 	res =statsList->initProtected(400,6,200);
 	CHECK_ERROR(res, ABC_REASON_LIST_INIT_FAILED,);
 
@@ -354,27 +356,27 @@ abcMemMon_c::~abcMemMon_c()
 {
 	if (name)
 	{
-		free(name);
+		ABC_FREE(FALSE,name);
 		name = NULL;
 	}
 	if (statsList)
 	{
-		delete statsList;
+		ABC_DEL_CLASS(FALSE,statsList);
 		statsList = NULL;
 	}
 	if (nameList)
 	{
-		delete nameList;
+		ABC_DEL_CLASS(FALSE, nameList);
 		nameList = NULL;
 	}
 	if (delmapList)
 	{
-		delete delmapList;
+		ABC_DEL_CLASS(FALSE, delmapList);
 		delmapList = NULL;
 	}
 	if (mmapList)
 	{
-		delete mmapList;
+		ABC_DEL_CLASS(FALSE, mmapList);
 		mmapList = NULL;
 	}
 }
@@ -392,31 +394,34 @@ abcReason_e abcMemMon_c::getReason()
 	return reason;
 }
 
-void *abcMemMon_c::interceptClassNew(void *objAddr, char *className, int objectSize, char *fileName, int fileLine, char *fileFunction)
+void *abcMemMon_c::interceptClassNew(uint8_t useMt,void *objAddr, char *className, int objectSize, char *fileName, int fileLine, char *fileFunction)
 {
 	// build the right hasName based on the object type... we're a class
 	char *objHashName = abcMemNameNode_c::buildObjectClassString(className);
-	return interceptCommonNew(objAddr, objHashName, objectSize, fileName, fileLine, fileFunction);
+	return interceptCommonNew(useMt, objAddr, objHashName, objectSize, fileName, fileLine, fileFunction);
 }
 
-void *abcMemMon_c::interceptStructNew(void *structAddr, char *structName, int objectSize, char *fileName, int fileLine, char *fileFunction)
+void *abcMemMon_c::interceptStructNew(uint8_t useMt, void *structAddr, char *structName, int objectSize, char *fileName, int fileLine, char *fileFunction)
 {
 	// build the right hasName based on the object type... we're a class
 	char *objHashName = abcMemNameNode_c::buildObjectStructString(structName);
-	return interceptCommonNew(structAddr, objHashName, objectSize, fileName, fileLine, fileFunction);
+	return interceptCommonNew(useMt, structAddr, objHashName, objectSize, fileName, fileLine, fileFunction);
 }
 
-void *abcMemMon_c::interceptRawNew(void *rawAddr, int objectSize, char *fileName, int fileLine, char *fileFunction)
+void *abcMemMon_c::interceptRawNew(uint8_t useMt, void *rawAddr, int objectSize, char *fileName, int fileLine, char *fileFunction)
 {
 	// build the right hasName based on the object type... we're a class
 	char *objHashName = abcMemNameNode_c::buildObjectRawString(objectSize);
-	return interceptCommonNew(rawAddr, objHashName, objectSize, fileName, fileLine, fileFunction);
+	return interceptCommonNew(useMt, rawAddr, objHashName, objectSize, fileName, fileLine, fileFunction);
 }
 
-void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int objectSize, char *fileName, int fileLine, char *fileFunction)
+void *abcMemMon_c::interceptCommonNew(uint8_t useMt, void *objAddr, char *objHashName, int objectSize, char *fileName, int fileLine, char *fileFunction)
 {
 	nodeKey_s searchKey;
 	abcMmapNode_c *mmapNode;
+
+	// when not is use, simply return
+	if (!useMt) return objAddr;
 
 	///////////////////////////========================
 	abcResult_e res = mmapList->writeLock();
@@ -541,11 +546,25 @@ void *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int obje
 	}
 
 	return objAddr;
-}
+}// end  *abcMemMon_c::interceptCommonNew(void *objAddr, char *objHashName, int objectSize, char *fileName, int fileLine, char *fileFunction)
 //
-// common delete for all object types.
-void abcMemMon_c::interceptDelete(void *objAddr, char *fileName, int fileLine, char *fileFunction)
+char *abcMemMon_c::interceptStrdup(uint8_t useMt, char *string)
 {
+	if (useMt)
+	{
+		int strLen = strlen(string)+1;
+		char *ret = (char *)malloc(strLen);
+		memcpy(ret,string,strLen);
+		return ret;
+	}
+	else return strdup(string);
+}
+
+// common delete for all object types.
+void abcMemMon_c::interceptDelete(uint8_t useMt, void *objAddr, char *fileName, int fileLine, char *fileFunction)
+{
+	if (!useMt) return;
+
 	// we'll make a search key based on the object address and confirm we have a node for that address.
 	nodeKey_s searchKey;
 	nodeKey_setPtr(&searchKey,objAddr);

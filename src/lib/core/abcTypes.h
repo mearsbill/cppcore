@@ -22,10 +22,8 @@ typedef int64_t abcTime1s_t;			// time in seconds.
 #define MAX_64B_INT (0x7FFFFFFFFFFFFFFFLL)
 #define MAX_32B_INT (0x7FFFFFFF)
 
-
-
-
-
+// configBits stuff
+typedef unsigned char CONFIG_t;
 
 #endif //__ABC_TYPES_H__
 /////////////////////////

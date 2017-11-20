@@ -26,9 +26,10 @@ class abcNode_c
 	friend class abcList_c;
 
 	// public lifecycle
-	abcNode_c();
+	abcNode_c();					// don't need to record use memory tool.   This object does not clone
 	virtual ~abcNode_c();
 
+	virtual uint8_t	getConfigBits() 	{return 0;};
 	virtual char	*getObjType();	// the class name
 	virtual char	*getObjName();	// the instance name when available
 	virtual abcResult_e print(abcPrintStyle_e printStyle=PRINT_STYLE_LIST_WITH_NODE_DETAILS); 
@@ -69,7 +70,9 @@ char *keyTypeAsStr(keyType_e type);
 typedef struct nodeKey_s
 {
 	keyType_e	type;
-	int32_t		size;		// size for Binary keyTypes (by convention use the string union member as the memory block pointer)
+	int16_t		size;		// size for Binary keyTypes (by convention use the string union member as the memory block pointer)
+	uint8_t		useMt;
+	uint8_t		unused;
 	union nodeKeyVal_u
 	{
 		int64_t		intgr;
@@ -81,7 +84,7 @@ typedef struct nodeKey_s
 
 // methods to init the nodeKey_s structure
 // there can't be a _setXXXMember for thise style init.L
-void nodeKey_init(nodeKey_s *This);
+void nodeKey_init(nodeKey_s *This,uint8_t setUseMt);
 void nodeKey_destroy(nodeKey_s *This);
 void nodeKey_setInt(nodeKey_s *This, const int64_t intKey);
 void nodeKey_setDbl(nodeKey_s *This, const double dbltKey);
@@ -103,10 +106,12 @@ class  abcListNode_c : public abcNode_c
 	class abcList_c		*owner;
 	int32_t				sliceIndex;		// used for slice, hash lists
 	abcReason_e			reason;
+	CONFIG_t			configBits;		// configuration for object memory and name
 
   public:
-	abcListNode_c();	// method in cpp file
-	virtual ~abcListNode_c();	// method in cpp file
+	abcListNode_c(const CONFIG_t setConfigBits = DEFAULT_OBJ_CONFIG);	// method in cpp file
+	virtual ~abcListNode_c();					// method in cpp file
+	virtual uint8_t	getConfigBits() 	{return configBits;};
 
 	void				resetReason();
 	void				setReason(abcReason_e setReason);
@@ -140,6 +145,7 @@ class  abcListNode_c : public abcNode_c
 	void setKeyBinary(const uint8_t *ptr,int size);
 	void setKeyBinaryMember(const uint8_t *stringKey, int size);
 	void setKeyBinaryExternal(const uint8_t *stringKey, int size);
+	nodeKey_s *getKey() { return &key; };
 };
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -153,7 +159,7 @@ class  testNode_c : public abcListNode_c
   protected: 
 
   public:
-	testNode_c(const char *name = NULL);	// method in cpp file
+	testNode_c(const char *name = NULL,const CONFIG_t setConfigBits = DEFAULT_OBJ_CONFIG);	// method in cpp file
 	virtual ~testNode_c();	// method in cpp file
 
 	virtual char		*getObjType();	// the class name
@@ -169,6 +175,7 @@ class  testNode_c : public abcListNode_c
 	// specific behavior
 	void setName(const char *setName);	// not key
 	void setValue(const int setValue);
+	int getValue() { return value;};
 };
 
 

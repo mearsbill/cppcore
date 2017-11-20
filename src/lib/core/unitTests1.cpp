@@ -12,11 +12,22 @@ extern "C"
 
 
 
-// this is for DEBUG_LTD.... to to help it work outside a proper object
+//
+// this is for print macros.... to to help it work outside a proper object
+//
 void setReason(abcReason_e setReason)
 {
 	globalSetReason(setReason);
 }
+
+// for quick and dirty printing configuration manipulations
+int configStackPtr=0;
+abcGlobalConfig_s configStack[10];
+#define CONFIG_INIT_TMP(e,w,p,d)  abcGlobalConfig_s tmpConfig; tmpConfig.printErrors = e; tmpConfig.printWarnings = w, tmpConfig.printPrint = p, tmpConfig.printDebug=d
+#define CONFIG_PUSH() configStack[configStackPtr++] = *globalConfig;							// use as "CONFIG_PUSH();
+#define CONFIG_POP() *globalConfig = configStack[--configStackPtr] 								// use CONFIG_POP();
+#define CONFIG_PUSH_SET1(a) configStack[configStackPtr++] = *globalConfig; globalConfig-> a; 	// use "CONFIG_PUSH_SET1(printErrors = FALSE);"
+#define CONFIG_PUSH_SETALL(a) configStack[configStackPtr++] = *globalConfig; *globalConfig = a; // use "CONFIG_PUSH_SETALL(tmpConfig);"
 
 abcResult_e testMemMon()
 {
@@ -91,14 +102,14 @@ abcResult_e testMemMon()
 	PRINT("TESTING abcMemMon_c\n");
 	abcMemMon_c *mMon = new abcMemMon_c("testMemMon");
 	char  *j1= (char *)mMon + 0x123450;
-	void *returnPtr = mMon->interceptClassNew(j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
+	void *returnPtr = mMon->interceptClassNew(TRUE,j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
 	if (returnPtr != j1)
 	{
 		ERROR_G(ABC_REASON_TEST_FAILED);
 		return ABC_FAIL;
 	}
 	// should fail with same address
-	returnPtr = mMon->interceptClassNew(j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
+	returnPtr = mMon->interceptClassNew(TRUE,j1, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
 	if (returnPtr)
 	{
 		PRINT("Should have failed but didn't\n");
@@ -115,10 +126,10 @@ abcResult_e testMemMon()
 
 	char *j2 = j1+1;
 	char *j3 = j2+1;
-	returnPtr = mMon->interceptClassNew(j2, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
-	returnPtr = mMon->interceptClassNew(j3, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
-	mMon->interceptDelete(j2, (char *)"unitTest.cpp",189,(char *)"testFn_deleteSpot");
-	mMon->interceptDelete(j2, (char *)"unitTest.cpp",189,(char *)"testFn_deleteSpot");
+	returnPtr = mMon->interceptClassNew(TRUE,j2, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
+	returnPtr = mMon->interceptClassNew(TRUE,j3, (char *)"abcJunkClass_c",sizeof(abcMemMon_c),(char *)"unitTest.cpp",89,(char *)"testFn_name");
+	mMon->interceptDelete(TRUE,j2, (char *)"unitTest.cpp",189,(char *)"testFn_deleteSpot");
+	mMon->interceptDelete(TRUE,j2, (char *)"unitTest.cpp",189,(char *)"testFn_deleteSpot");
 
 	mMon->printMemoryStats();
 
@@ -619,103 +630,120 @@ abcResult_e timeSortedListTest(int nodeCount, int loopCount)
 	return ABC_PASS;
 } // end abcResult_e timeSortedListTest(int nodeCount, int loopCount)
 
-abcResult_e listTests()
+abcResult_e test3_lists()
 {
-	PRINT("TESTING LISTS\n");
+	int checkTestFailures = 0;//	count up failuers seen inside checkTest Macro
+	fprintf(stderr,"\nTest 3 -  basic list testing\n");
+	globalConfig->printErrors = TRUE;
+	globalConfig->printWarnings = TRUE;
+	globalConfig->printDebug = TRUE;
+	globalConfig->printPrint = TRUE;
 
 	// make a new list
-	abcList_c *tList = new abcList_c("testList");
+	abcList_c *tList = new abcList_c("testList",OBJ_CONFIG_UseObjName);
 	
-	// add things to tail
+	// add nodes to tail
+	abcResult_e res; 
+	testNode_c *tn;
 	int i;
-	for (i=0;i<10;i++)
+	for (i=0;i<20;i++)
 	{
-		testNode_c *tn = new testNode_c();
-
+		tn = new testNode_c(NULL,OBJ_CONFIG_UseObjName);
 		tn->setValue(i);
+
 		char tmpStr[128];
-		if (i & 1 )
+		snprintf(tmpStr,128,"testNode%d",i);
+		tn->setName(tmpStr);
+		tn->setKeyInt(i);
+	
+		if (i & 1)
 		{
-			snprintf(tmpStr,128,"testStr%d",i);
+			 res = tList->addTail(tn);
 		}
 		else
 		{
-			snprintf(tmpStr,128,"TESTSTR%d",i);
+			 res = tList->addHead(tn);
 		}
-		tn->setName(tmpStr);
-
-
-		int keyStyle=(i%4) + 1;
-		switch(keyStyle)
-		{
-			case 1:
-				tn->setKeyInt(i);
-				break;
-			case 2:
-				tn->setKeyDbl((double)i *1.16);
-				break;
-			case 3:
-				tn->setKeyPtr(tn);
-				break;
-			case 4:
-				tn->setKeyString(tmpStr);
-				break;
-		}
-
-
-		abcResult_e addTailResult = tList->addTail(tn);
-
-		if ( addTailResult == ABC_FAIL) // don't expect an error
-		{
-			fprintf(stderr,"expected result ABC_PASS but got %s\n",abcResultAsStr(addTailResult));
-			ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
-			exit(1);
-		}
-		if (i == 0)
-		{
-			abcResult_e aResult = tList->addHead(tn);
-			if ( aResult != ABC_FAIL )	// had better fail !
-			{
-				fprintf(stderr,"expected result ABC_FAIL but got %s\n",abcResultAsStr(aResult));
-				ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
-				exit(1);
-			}
-			PRINT("No problem... previous error  expected... clearing error condition at %s:%d\n",__FILE__,__LINE__);
-			tList->resetReason();	// reset the error we intentionally caused
-		}
+		CHECK_ERROR(res,ABC_REASON_LIST_ADD_FAILED,res);
 	}
-	PRINT("generating list print\n");
-	//tList->print(1,1);
+	// tList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
+	
+	// try re-adding the latest node ... should fail
+	CONFIG_PUSH_SET1(printErrors = FALSE);
+	res = tList->addHead(tn);
+	CHECK_TEST("3.1","abcList_c::add() fails when owner ! null" ,(res != ABC_PASS),checkTestFailures);
+	CONFIG_POP();
 
-	PRINT("Cloning the list\n");
+	// ("Cloning the list") and testing it.
 	abcList_c *cloneList = tList->clone();
+	CHECK_TEST("3.2.1","abcList_c::clone valid",(cloneList != NULL),checkTestFailures);
+	if (cloneList != NULL)
+	{
+		//PRINT("Printing the Clone \n");
+		//cloneList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
+		
+		// traverse the clone for correctness
+		int incr=-2;
+		int tCount = 0;
+		char tName[64];
+		tn = (testNode_c *)cloneList->pullHead();
+		if (!tn)
+		{
+				CHECK_TEST("3.2.2","abcList_c::clone pullHead valid",FALSE,checkTestFailures);
+		}
+		else
+		{
+			int tVal = tn->getValue();
+			int loopFailed = FALSE;
+			while (tn && !loopFailed)
+			{
+				snprintf(tName,64,"testNode%d[cl]",tVal);
+				if (strcmp(tName,tn->getObjName()) != 0)
+				{
+					CHECK_TEST("3.2.3","abcList_c::clone testNode valid cloned names",FALSE,checkTestFailures)
+					loopFailed = TRUE;
+					break;
+				}
+				if ( tVal != (tn->getKey())->value.intgr)
+				{
+					CHECK_TEST("3.2.4","abcList_c::clone testNode key matches cloned values",FALSE,checkTestFailures)
+					loopFailed = TRUE;
+					break;
+				}
+				if (tVal == 0) incr = 1; else if (tVal == 1) incr=2;
+				tVal += incr;
 
-	PRINT("Printing the Clone \n");
-	cloneList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
+				delete tn;
+				tn = (testNode_c *)cloneList->pullHead();
+				tCount++;
+			}
+			if (!loopFailed)
+			{
+					CHECK_TEST("3.2.3","abcList_c::clone testNode valid cloned names",TRUE,checkTestFailures)
+					CHECK_TEST("3.2.4","abcList_c::clone testNode key matches clomed values",TRUE,checkTestFailures)
+			}
+		} // end something on list
+		CHECK_TEST("3.2.4.5","abcList_c clone entryCount correct after pulls",(cloneList->getNodeCount() == 0),checkTestFailures)
+		// done with cloneList
+		delete cloneList;
+	} // clone exists
 
 	// test the stateless calls
-	if (tList->getHead() !=  tList->head())
-	{
-		PRINT("FAIL getHead != head \n");
-		exit(1);
-	}
+	CHECK_TEST("3.3.1","abcList_c statefull head()",(tList->getHead() ==  tList->head()),checkTestFailures)
+	CHECK_TEST("3.3.2","abcList_c statefull next()",((tList->getHead())->next() ==  tList->next()),checkTestFailures)
+	CHECK_TEST("3.3.3","abcList_c statefull tail()",(tList->getTail() ==  tList->tail()),checkTestFailures)
+	CHECK_TEST("3.3.4","abcList_c statefull next()",((tList->getTail())->prev() ==  tList->prev()),checkTestFailures)
 
-	if (tList->getTail() !=  tList->tail())
-	{
-		PRINT("FAIL getTail != tail \n");
-		exit(1);
-	}
-
-	PRINT("deleting the clone and emptying the testList\n");
-	delete cloneList;
+	// verify clone entryCount zero afer all elements pulled
 	tList->empty();
-
-	PRINT("preparing list for find test\n");
+	CHECK_TEST("3.4","abcList_c entryCount correct after empty",(tList->getNodeCount() == 0),checkTestFailures)
+	
+	// populate list for find test
 	int j=0;
-	for (i=0;i<18;i++)
+	for (i=1;i<32;i++)
 	{
 		j = (j+1) %7;
-		testNode_c *tn = new testNode_c();
+		testNode_c *tn = new testNode_c(NULL,OBJ_CONFIG_UseObjName);
 		tn->setValue(i);
 		tn->setKeyInt(j);
 		if (i < 9)
@@ -730,74 +758,60 @@ abcResult_e listTests()
 		}
 	}
 
-	PRINT("Building search key\n");
+	// find all 5's and do sum
+	int total = 0;
 	nodeKey_s sKey;
 	sKey.type = KEYTYPE_INT;
 	sKey.value.intgr = 5;
 	testNode_c *fn = (testNode_c *)tList->findFirst(&sKey,1/*towardsNext*/);
 	while (fn)
 	{
-		PRINT("ADDING %d in the middle\n",i);
-		testNode_c *tt = new testNode_c();
-		tt->setValue(i);
-		tt->setKeyInt(j);
-		tt->setName("addMiddle");
-		tList->addMiddle(tt,fn);
-/*
-		abcResult_e  resultAm = tList->addMiddle(tt,fn);
-		if (resultAm != ABC_FAIL)
-		{
-			ERROR_G(ABC_REASON_UNRECOVERABLE_FAILURE);
-			exit(1);
-		}
-*/
-		i++;
-		j = (j+1)%7;
-		fn = (testNode_c *)tList->findNext(&sKey,fn);
+		total += fn->getValue();
+		//fprintf(stderr,"[ %d %d ]",fn->getValue(),total);	// sequecne s.b. 26.19.12.5
+		fn = (testNode_c *)tList->findNext(&sKey,fn,1);
 	}
+	// check the sum (checksum duh!)
+	CHECK_TEST("3.5.1","abcList_c find/next forward",total == 62 ,checkTestFailures)
+	//tList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
 
-	tList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
-
-	PRINT("Testing find/findNext\n");
-
-	PRINT("scanning fowards\n");
-	sKey.value.intgr = 3;
-	fn = (testNode_c *)tList->findFirst(&sKey,1/*towardsNext*/);
-	while (fn)
-	{
-		fn->print();
-		fn = (testNode_c *)tList->findNext(&sKey,fn);
-	}
-	PRINT("scanning backwards\n");
+	total = 0;
 	fn = (testNode_c *)tList->findFirst(&sKey,0/*towardsNext*/);
 	while (fn)
 	{
-		fn->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
+		total += fn->getValue();
+		//fprintf(stderr,"[ %d %d ]",fn->getValue(),total);	// sequecne s.b. 5.12.19.26
 		fn = (testNode_c *)tList->findNext(&sKey,fn,0);
 	}
+	CHECK_TEST("3.5.2","abcList_c find/next backwards",total == 62 ,checkTestFailures)
 
-	PRINT("BEFORE EMPTY\n");
 	tList->empty();
-	PRINT("AFTER EMPTY\n");
 
-	int valueMap[25]={1,3,5,2,4,6,9,8,7,9,24,23,22,9,20,10,11,12,13,15,14,16,17,19,18};
-	PRINT("TESTING Sorted add\n");
-	testNode_c *tn;
+	// test addSorted.
+	int valueMap[25]={1,3,5,2,4,6,21,8,7,25,24,23,22,9,20,10,11,12,13,15,14,16,17,19,18};
 	for (i=0;i<25;i++)
 	{
-		tn = new testNode_c();
+		tn = new testNode_c(NULL,OBJ_CONFIG_UseObjName);
 		j = valueMap[i];
 		tn->setValue(i);
 		tn->setKeyInt(j);
 
 		tList->addSorted(tn,TRUE);
 	}
-	tList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
+	//tList->print(PRINT_STYLE_LIST_WITH_NODE_DETAILS);
+	int testVal = 1;
+	for (i=0;i<25;i++)
+	{
+		tn = (testNode_c *)tList->pullHead();
+		if (testVal++ != (tn->getKey())->value.intgr) break;
+	}
+	CHECK_TEST("3.6","abcList_c addSorted",i == 25 ,checkTestFailures)
 
 	
-	PRINT("DONE TESTING LISTS\n");
-	return ABC_PASS;
-}
+	/////////////////// done with printing testing !!!
+	fprintf(stderr,"%s:  %d failures\n",__FUNCTION__,checkTestFailures);
+	return (checkTestFailures ? ABC_FAIL:ABC_PASS);
+
+} // end test3_lists()
 
 
 //
@@ -807,52 +821,51 @@ abcResult_e test2_node()
 {
 	int checkTestFailures = 0;//	count up failuers seen inside checkTest Macro
 
-	fprintf(stderr,"Test 2 - abcNode_c basic testing\n");
-	globalConfig->printErrors = FALSE;
-	globalConfig->printWarnings = FALSE;
-	globalConfig->printDebug = FALSE;
-	globalConfig->printPrint = FALSE;
+	fprintf(stderr,"\nTest 2 - abcNode_c basic testing\n");
+	globalConfig->printErrors = TRUE;
+	globalConfig->printWarnings = TRUE;
+	globalConfig->printDebug = TRUE;
+	globalConfig->printPrint = TRUE;
 
 	// test 2.1  >  null pointers in abcNode_c
 	abcNode_c *node = new abcNode_c();
 	char *type = node->getObjType();
-	CHECK_TEST("2.1", (strcmp(type,"abcNode_c") == 0),checkTestFailures);
+	CHECK_TEST("2.1", "abcNode_c obj name correctness",(strcmp(type,"abcNode_c") == 0),checkTestFailures);
 
 	char *name = node->getObjName();
-	CHECK_TEST("2.1.2", ( name == NULL),checkTestFailures);
+	CHECK_TEST("2.1.2","abcNode_c name null", ( name == NULL),checkTestFailures);
 
 	abcNode_c *ptr = node->next();
-	CHECK_TEST("2.1.3", ( ptr == NULL),checkTestFailures);
+	CHECK_TEST("2.1.3", "abcNode_c next null",( ptr == NULL),checkTestFailures);
 
 	ptr = node->prev();
-	CHECK_TEST("2.1.4", ( ptr == NULL),checkTestFailures);
+	CHECK_TEST("2.1.4", "abcNode_c prev null",( ptr == NULL),checkTestFailures);
 	delete node;
 
 	// test 2.2  >  abcListNode_c basics
-	abcListNode_c *ln = new abcListNode_c();
+	abcListNode_c *ln = new abcListNode_c(OBJ_CONFIG_UseObjName);
 	type = ln->getObjType();
-	CHECK_TEST("2.2.1", (strcmp(type,"abcListNode_c") == 0),checkTestFailures);
+	CHECK_TEST("2.2.1", "abcListNode_c objType correctness",(strcmp(type,"abcListNode_c") == 0),checkTestFailures);
 
 	name = ln->getObjName();
-	CHECK_TEST("2.2.2", ( name == NULL),checkTestFailures);
+	CHECK_TEST("2.2.2","abcListNode_c name null", ( name == NULL),checkTestFailures);
 
 	// test 2.3  >  abcListNode_c nodeKey
 	nodeKey_s testKey;
 	nodeKey_s *tkp = &testKey;
-	nodeKey_init(tkp);
+	nodeKey_init(tkp,FALSE);
 	nodeKey_setInt(tkp,40);
 	ln->setKeyInt(32);
-	CHECK_TEST("2.3.1.1", ln->diffKey(tkp) == ABC_GREATER_THAN,checkTestFailures);
+	CHECK_TEST("2.3.1.1", "abcListNode_c diffKey(nodeKey_s) > Int",ln->diffKey(tkp) == ABC_GREATER_THAN,checkTestFailures);
 	nodeKey_setInt(tkp,30);
-	CHECK_TEST("2.3.1.2", ln->diffKey(tkp) == ABC_LESS_THAN,checkTestFailures);
+	CHECK_TEST("2.3.1.2", "abcListNode_c diffKey(nodeKey_s) < Int",ln->diffKey(tkp) == ABC_LESS_THAN,checkTestFailures);
 	nodeKey_setInt(tkp,32);
-	CHECK_TEST("2.3.1.3", ln->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
-	ln->setKeyDbl(32.0);	// test mismatch ... should cause err... don't let it abort
+	CHECK_TEST("2.3.1.3", "abcListNode_c diffKey(nodeKey_s) = Int",ln->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
 
-	int tmpPrint = globalConfig->printErrors;
-	//globalConfig->printErrors = TRUE;
-	CHECK_TEST("2.3.1.4", ln->diffKey(tkp) == ABC_ERROR,checkTestFailures);
-	globalConfig->printErrors = tmpPrint;
+	ln->setKeyDbl(32.0);	// test mismatch ... should cause err... don't let it abort
+	CONFIG_PUSH_SET1(printErrors = FALSE);
+	CHECK_TEST("2.3.1.4", "abcListNode_c diffKey(nodeKey_s) Keytype Mismatch",ln->diffKey(tkp) == ABC_ERROR,checkTestFailures);
+	CONFIG_POP();
 
 	// moving to strings.. only going to test simple strings (strdup'd') 
 	// cloning with memory tracking will make it more testable, but we don't have memory tracking here
@@ -863,54 +876,52 @@ abcResult_e test2_node()
 	char *extString2 = (char *)"ab6";
 	ln->setKeyString(extString1);
 	nodeKey_setString(tkp,extString2);
-	//globalConfig->printPrint = TRUE;
+
 	//PRINT("strcmp(keyonly:%s,node:%s) = %s\n",tkp->value.string,ln->getKeyString(),abcResultAsStr(ln->diffKey(tkp)));
-	CHECK_TEST("2.3.2.1", ln->diffKey(tkp) == ABC_GREATER_THAN,checkTestFailures);
+	CHECK_TEST("2.3.2.1", "abcListNode_c diffKey(nodeKey_s) > String",ln->diffKey(tkp) == ABC_GREATER_THAN,checkTestFailures);
+
 	nodeKey_setString(tkp,"ab4");
 	//PRINT("strcmp(keyonly:%s,node:%s) = %s\n",tkp->value.string,ln->getKeyString(),abcResultAsStr(ln->diffKey(tkp)));
-	CHECK_TEST("2.3.2.2", ln->diffKey(tkp) == ABC_LESS_THAN,checkTestFailures);
+	CHECK_TEST("2.3.2.2",  "abcListNode_c diffKey(nodeKey_s) > String",ln->diffKey(tkp) == ABC_LESS_THAN,checkTestFailures);
 	nodeKey_setString(tkp,"ab5");
-	CHECK_TEST("2.3.3.3", ln->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
+	CHECK_TEST("2.3.3.3",   "abcListNode_c diffKey(nodeKey_s) = String",ln->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
 
 	// test 2.3  listNode cloning
 	abcListNode_c *lnClone = ln->clone();		
-	CHECK_TEST("2.4.1", (lnClone != NULL), checkTestFailures);
+	CHECK_TEST("2.4.1", "abcListNode_c clone not NULL",(lnClone != NULL), checkTestFailures);
 	if (lnClone != NULL)
 	{
 		// test 2.4.1.1  >  null pointers in abcNode_c
 		char *type = lnClone->getObjType();
-		CHECK_TEST("2.4.2", (strcmp(type,"abcListNode_c") == 0),checkTestFailures);
+		CHECK_TEST("2.4.2", "abcListNode_c clone objType correct", (strcmp(type,"abcListNode_c") == 0),checkTestFailures);
 
 		char *name = lnClone->getObjName();
-		CHECK_TEST("2.4.2", ( name == NULL),checkTestFailures);
+		CHECK_TEST("2.4.2", "abcListNode_c clone objName correct",( name == NULL),checkTestFailures);
 
 		abcNode_c *ptr = lnClone->next();
-		CHECK_TEST("2.4.3", ( ptr == NULL),checkTestFailures);
+		CHECK_TEST("2.4.3",  "abcListNode_c clone next NULL", ( ptr == NULL),checkTestFailures);
 
 		ptr = lnClone->prev();
-		CHECK_TEST("2.4.4", ( ptr == NULL),checkTestFailures);
+		CHECK_TEST("2.4.4",  "abcListNode_c clone prev NULL", ( ptr == NULL),checkTestFailures);
 
 		// check the clone against the original
-        //globalConfig->printPrint = TRUE;
-		//abcResult_e diffRes = lnClone->diffKey(ln);
-        //PRINT("strcmp(clone:%s,orig:%s) = %s\n",lnClone->getKeyString(),ln->getKeyString(),abcResultAsStr(diffRes));
-		CHECK_TEST("2.4.5.1", lnClone->diffKey(ln) == ABC_EQUAL,checkTestFailures);
+        //PRINT("strcmp(clone:%s,orig:%s) = %s\n",lnClone->getKeyString(),ln->getKeyString(),abcResultAsStr(lnClone->diffKey(ln)));
+		CHECK_TEST("2.4.5.1", "abcListNode_c clone correct diffKey vs orignal ",lnClone->diffKey(ln) == ABC_EQUAL,checkTestFailures);
 
 		// moving to strings.. only going to test simple strings (strdup'd') 
 		// cloning with memory tracking will make it more testable, but we don't have memory tracking here
 		//
-		//  Note:  changing keyTypes is dangerous !!! don't do it without a destroy
-		nodeKey_destroy(tkp);
+		nodeKey_destroy(tkp); //  Note:  changing keyTypes is dangerous !!! don't do it without a destroy
 		char *extString2 = (char *)"ab6";
 		nodeKey_setString(tkp,extString2);
 		//globalConfig->printPrint = TRUE;
 		//PRINT("strcmp(keyonly:%s,node:%s) = %s\n",tkp->value.string,ln->getKeyString(),abcResultAsStr(ln->diffKey(tkp)));
-		CHECK_TEST("2.4.5.2", lnClone->diffKey(tkp) == ABC_GREATER_THAN,checkTestFailures);
+		CHECK_TEST("2.4.5.2","abcListNode_c clone correct diffKey string > ", lnClone->diffKey(tkp) == ABC_GREATER_THAN,checkTestFailures);
 		nodeKey_setString(tkp,"ab4");
 		//PRINT("strcmp(keyonly:%s,node:%s) = %s\n",tkp->value.string,ln->getKeyString(),abcResultAsStr(ln->diffKey(tkp)));
-		CHECK_TEST("2.4.5.3", lnClone->diffKey(tkp) == ABC_LESS_THAN,checkTestFailures);
+		CHECK_TEST("2.4.5.3", "abcListNode_c clone correct diffKey string < ",lnClone->diffKey(tkp) == ABC_LESS_THAN,checkTestFailures);
 		nodeKey_setString(tkp,"ab5");
-		CHECK_TEST("2.4.5.4", lnClone->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
+		CHECK_TEST("2.4.5.4", "abcListNode_c clone correct diffKey string = ",lnClone->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
 	}
 	delete ln;
 	delete lnClone;
@@ -918,26 +929,27 @@ abcResult_e test2_node()
 
 	// test 2.5  >  testng a testNode_c [ a subclass of abcListNode_c 
 	char *tnName=(char *)"unitTest1_testNode";
-	testNode_c *tn = new testNode_c(tnName);
+	testNode_c *tn = new testNode_c(tnName,OBJ_CONFIG_UseObjName);
 	type = tn->getObjType();
-	CHECK_TEST("2.5.1", (strcmp(type,"testNode_c") == 0),checkTestFailures);
+	CHECK_TEST("2.5.1","testNode_c correct objType", (strcmp(type,"testNode_c") == 0),checkTestFailures);
 
 	name = tn->getObjName();	// make the standard... take is just the point,  storing does the strdup
-	CHECK_TEST("2.5.2", ( strcmp(tnName,name) == 0),checkTestFailures);
+	CHECK_TEST("2.5.2", "testNode_c correct objName", ( strcmp(tnName,name) == 0),checkTestFailures);
 	
 	tn->setValue(123);
 	tn->setKeyInt(456);
 	nodeKey_setInt(tkp,456);
-	CHECK_TEST("2.5.3", tn->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
+	CHECK_TEST("2.5.3", "testNode_c diffKey int =",tn->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
 	abcListNode_c *tnClone = tn->clone();
-	CHECK_TEST("2.6.1", (tnClone != NULL) ,checkTestFailures);
-	CHECK_TEST("2.6.2", tnClone->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
-
+	CHECK_TEST("2.6.1", "testNode_c clone valid", (tnClone != NULL) ,checkTestFailures);
+	if (tnClone)
+	{
+		CHECK_TEST("2.6.2", "testNode_c clone diffKey int =",tnClone->diffKey(tkp) == ABC_EQUAL,checkTestFailures);
+		delete tnClone;
+	}
 	// clean up
 	nodeKey_destroy(tkp);
 	delete tn;
-	delete tnClone;
-
 
 	/////////////////// done with printing testing !!!
 	fprintf(stderr,"%s:  %d failures\n",__FUNCTION__,checkTestFailures);
@@ -953,22 +965,22 @@ abcResult_e test1_printing()
 	fprintf(stderr,"Test 1 - Debug printing Test.  Manually confirm questions\n");
 	int checkTestFailures = 0;//	count up failuers seen inside checkTest Macro
 
-	// test 1.1 - test PRINT macro and globalConfig control over it
+	// test 1.1 - test PRINT enabled
 	globalConfig->printPrint = TRUE;
 	fprintf(stderr,"Do you see \"PrintingEnabled\" inside the brackets.... [");
 	PRINT(" PrintingEnabled ");
 	fprintf(stderr,"] (Y/n)");
 	char inStr[128]; fgets(inStr,128,stdin);
-	TTY_CHK_TEST("1.1",inStr,'Y',checkTestFailures);
+	TTY_CHK_TEST("1.1","PRINT enabled",inStr,'Y',checkTestFailures);
 
-	// test 1.2
+	// test 1.2 PRINT disabled
 	globalConfig->printPrint = FALSE;
 	fprintf(stderr,"Do you see \"PrintingEnabled\" inside the brackets.... [");
 	PRINT(" PrintingEnabled ");
 	fprintf(stderr,"] (y/N)"); fgets(inStr,128,stdin);
-	TTY_CHK_TEST("1.2",inStr,'N',checkTestFailures);
+	TTY_CHK_TEST("1.2","PRINT disabled",inStr,'N',checkTestFailures);
 
-	// test 1.3
+	// test 1.3 PRINT_LTD
 	globalConfig->printPrint = TRUE;
 	int i;
 	fprintf(stderr,"Do you see \"1 2 3 5 10 15\" inside the brackets.... [");
@@ -977,7 +989,7 @@ abcResult_e test1_printing()
 		PRINT_LTD(3,5,"%d ",i);
 	}
 	fprintf(stderr,"] (Y/n)"); fgets(inStr,128,stdin);
-	TTY_CHK_TEST("1.3",inStr,'Y',checkTestFailures);
+	TTY_CHK_TEST("1.3","PRINT_LTD enabled",inStr,'Y',checkTestFailures);
 
 	// test 1.4 test PRINT_LTD
 	globalConfig->printPrint = FALSE;
@@ -987,7 +999,7 @@ abcResult_e test1_printing()
 		PRINT_LTD(3,5,"%d ",i);
 	}
 	fprintf(stderr,"] (y/N)"); fgets(inStr,128,stdin);
-	TTY_CHK_TEST("1.4",inStr,'Y',checkTestFailures);
+	TTY_CHK_TEST("1.4","PRINT_LTD disabled",inStr,'Y',checkTestFailures);
 	globalConfig->printPrint = TRUE;
 
 	// test 1.5 test WARNING
@@ -996,14 +1008,14 @@ abcResult_e test1_printing()
 	fprintf(stderr,"Below, You should see JUST ONE line with the text \"WARNING! Reason=ABC_REASON_TEST_FAILED in method test1_printing at unitTest.cpp:xxx\"\n");
 	globalResetReason();
 	WARNING(ABC_REASON_TEST_FAILED); // setReason mapped to globalSetReason for in this test
-	CHECK_TEST("1.5.1",(globalCore->getReason() == ABC_REASON_TEST_FAILED),checkTestFailures);
+	CHECK_TEST("1.5.1","WARNING reasonCode correctness",(globalCore->getReason() == ABC_REASON_TEST_FAILED),checkTestFailures);
 
 	globalConfig->printWarnings = FALSE;
 	globalResetReason();
 	WARNING(ABC_REASON_TEST_FAILED);
-	CHECK_TEST("1.5.2",(globalCore->getReason() == ABC_REASON_TEST_FAILED),checkTestFailures);	// reason didn't get set properly
+	CHECK_TEST("1.5.2","WARNING disabled",(globalCore->getReason() == ABC_REASON_TEST_FAILED),checkTestFailures);	// reason didn't get set properly
 	fprintf(stderr,"Confirm (Y/n)"); fgets(inStr,128,stdin);
-	TTY_CHK_TEST("1.5",inStr,'Y',checkTestFailures);
+	TTY_CHK_TEST("1.5","WARNING control",inStr,'Y',checkTestFailures);
 
 	// test 1.6 test WARNING_LTD
 	globalResetReason();
@@ -1015,8 +1027,8 @@ abcResult_e test1_printing()
 		WARNING_LTD(4,5,ABC_REASON_TEST_FAILED);	// printEnable tested after the filter is run
 	}
 	fprintf(stderr,"Confirm (Y/n)"); fgets(inStr,128,stdin);
-	TTY_CHK_TEST("1.6",inStr,'Y',checkTestFailures);
-	CHECK_TEST("1.6.1",(globalCore->getReason() == ABC_REASON_TEST_FAILED),checkTestFailures);	// reason didn't get set properly
+	TTY_CHK_TEST("1.6","WARNING_LTD filtering",inStr,'Y',checkTestFailures);
+	CHECK_TEST("1.6.1","WARNING_LTD reasonCode correctness",(globalCore->getReason() == ABC_REASON_TEST_FAILED),checkTestFailures);	// reason didn't get set properly
 	globalConfig->printWarnings = TRUE;
 
 	// test 1.7 test DEBUG
@@ -1026,7 +1038,7 @@ abcResult_e test1_printing()
 	globalConfig->printDebug = FALSE;
 	DEBUG(" [DEBUG_MESSAGE] ");
 	fprintf(stderr,"Confirm you see the message JUST ONCE (Y/n)"); fgets(inStr,128,stdin);
-	TTY_CHK_TEST("1.7",inStr,'Y',checkTestFailures);
+	TTY_CHK_TEST("1.7","DEBUG enable/disable",inStr,'Y',checkTestFailures);
 	globalConfig->printDebug = TRUE;
 
 	// test 1.8 test ERROR
@@ -1037,24 +1049,23 @@ abcResult_e test1_printing()
 	globalResetReason();
 	ERROR(ABC_REASON_TEST_FAILED);
 	int test181 = (globalCore->getReason() == ABC_REASON_TEST_FAILED);
-	globalResetReason();
 
 	globalResetReason();
-	globalConfig->printErrors = FALSE;
+	CONFIG_PUSH_SET1(printErrors = FALSE);
 	ERROR(ABC_REASON_TEST_FAILED);
 	int test182 = (globalCore->getReason() == ABC_REASON_TEST_FAILED);
+	CONFIG_POP();
 
 	globalResetReason();
-	globalConfig->printErrors = TRUE;
 	ERROR(ABC_REASON_TEST_FAILED);
 	int test183 = (globalCore->getReason() == ABC_REASON_TEST_FAILED);
 
 	fprintf(stderr,"Confirm (Y/n)"); fgets(inStr,128,stdin);
-	TTY_CHK_TEST("1.8",inStr,'Y',checkTestFailures);
+	TTY_CHK_TEST("1.8","ERROR Enable",inStr,'Y',checkTestFailures);
 
-	CHECK_TEST("1.8.1",test181,checkTestFailures);	// check if reason didn't get set properly
-	CHECK_TEST("1.8.2",test182,checkTestFailures);	// check if reason didn't get set properly
-	CHECK_TEST("1.8.3",test183,checkTestFailures);	// check if reason didn't get set properly
+	CHECK_TEST("1.8.1","ERROR reasonCode correctness while enabled",test181,checkTestFailures);	// check if reason didn't get set properly
+	CHECK_TEST("1.8.2","ERROR reasonCode correctness while disabled",test182,checkTestFailures);	// check if reason didn't get set properly
+	CHECK_TEST("1.8.3","ERROR reasonCode correctness",test183,checkTestFailures);	// check if reason didn't get set properly
 
 
 	// test 1.9 test ERROR_LTD
@@ -1065,87 +1076,13 @@ abcResult_e test1_printing()
 		ERROR_LTD(4,ABC_REASON_TEST_FAILED);	// printEnable tested after the filter is run
 	}
 	fprintf(stderr,"Confirm (Y/n)"); fgets(inStr,128,stdin);
-	TTY_CHK_TEST("1.6",inStr,'Y',checkTestFailures);
+	TTY_CHK_TEST("1.6","ERROR_LTD enabaled",inStr,'Y',checkTestFailures);
 
 
 	/////////////////// done with printing testing !!!
 	fprintf(stderr,"%s:  %d failures\n",__FUNCTION__,checkTestFailures);
 	return (checkTestFailures ? ABC_FAIL:ABC_PASS);
 }
-/*
-abcResult_e nodeTests()
-{
-	PRINT("TESTING NODES\n");
-	PRINT("building a ListNode\n");
-	abcListNode_c *le = new abcListNode_c();
-	PRINT("destroying a ListNode\n");
-	delete le;
-	PRINT("FINISHED TESTING NODES\n");
-	return ABC_PASS;
-}
-*/
-
-
-#if 0
-
-	abcListNode_c *le = new abcListNode_c();
-	fprintf(stderr," === \n");
-	abcNode_c *otherNode = le;
-	abcNode_c *base = new abcNode_c();
-	le->setKeyInt(123);
-	le->setKeyString("Hello Fred");
-
-
-	abcListNode_c *le_clone = le->clone();
-
-
-	abcList_c *myList = new abcList_c("TestList");
-	abcList_c *cloneList = myList->clone();
-
-	fprintf(stderr," === deleting le\n");
-	delete otherNode;
-	fprintf(stderr," === deleting base\n");
-	delete base;
-	fprintf(stderr," === done \n");
-
-	
-	btest_c *bto = new btest_c("Joe");
-	bto->puta(123);
-	bto->putb(456000);
-	bto->display();
-	printf("bto= %llx\n",(int64_t)bto);
-
-	delete bto;
-#endif
-
-/*
-class btest_c
-{
-  private:
-  	int64_t a;
-	int64_t b;
-	char	*name;
-  protected:
-
-  public:
-  	btest_c(const char *str); // {  name=strdup(str); }
-	~btest_c(); //{ free (name); }
-
-  	void puta(int64_t setval) {  a = setval; }
-  	void putb(int64_t setval) {  b = setval; }
-	void display() { printf("%s a=%lld b=%lld\n",name,a,b); }
-	int64_t getaplusb() { return a+b; }
-};
-
-btest_c::btest_c(const char *str)
-{
-	name=strdup(str); 
-}
-btest_c::~btest_c()
-{
-	free (name); 
-}
-*/
 
 ////////////////////////////////////////////////////////////////////////////
 //
@@ -1220,7 +1157,7 @@ int main(int argc, char **argv)
 	abcResult_e initStatus = globalCore->init(1);
 	globalConfig = globalCore->getConfig();
 
-	// manual defualt configuration after globalInit
+	// manual default configuration after globalInit
 	globalConfig->abortErrors = FALSE;
 	
 	if (initStatus != ABC_PASS)
@@ -1274,9 +1211,9 @@ int main(int argc, char **argv)
 	abcResult_e result;
 
 	// build a node then a listNode
-//	result = test1_printing();
+	//result = test1_printing();
 	result = test2_node();
-	//result = listTests();
+	result = test3_lists();
 	//result = timeSortedListTest(10000, 1000);
 	//result = testCrc();
 	//result = testPrimes();
